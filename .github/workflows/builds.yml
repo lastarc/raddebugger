@@ -326,15 +326,16 @@ jobs:
           check_id=$(gh api -X POST repos/${{ github.repository }}/check-runs -f name=mac-e2e-progress -f head_sha=${{ github.sha }} -f status=in_progress --jq .id 2>/dev/null)
           report() {
             [ -n "$check_id" ] || return 0
-            { echo '```'; date -u; echo "--- e2e"; tail -n 40 build/e2e_test.txt 2>/dev/null
-              echo "--- debugger"; tail -n 20 build/e2e/debugger.txt 2>/dev/null
-              echo "--- ps"; ps -axo pid,ppid,user,stat,%cpu,rss,etime,comm -r | head -n 15
-              echo "--- vm"; vm_stat | head -n 8; echo '```'; } > build/e2e_report.md
+            { echo '```'; date -u; echo "--- e2e"; tail -n 25 build/e2e_test.txt 2>/dev/null
+              echo "--- ctrl log"; tail -n 60 build/e2e/logs/ctrl_thread.raddbg_log 2>/dev/null
+              echo "--- debugger"; tail -n 8 build/e2e/debugger.txt 2>/dev/null
+              echo "--- ps"; ps -axo pid,ppid,user,stat,%cpu,rss,etime,comm -r | head -n 8; ps -axo pid,ppid,stat,%cpu,rss,etime,command | grep -E "raddbg|mac_demon_test_target" | grep -v grep | cut -c1-200
+              echo "--- vm"; vm_stat | sed -n 2,4p; sysctl vm.swapusage; echo '```'; } > build/e2e_report.md
             gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f "output[title]=e2e progress" -F "output[summary]=@build/e2e_report.md" > /dev/null 2>&1
           }
           echo "phase 0: monitor up" > build/e2e_test.txt
           report
-          ( while true; do sleep 2; report; done ) &
+          ( while true; do sleep 1; report; done ) &
           monitor=$!
           # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
           ./build/raddbg_non_graphical --ipc_port:7533 --no_focus_on_stop --user:build/e2e/unpriv.raddbg_user > build/e2e/unpriv_debugger.txt 2>&1 < /dev/null &
@@ -345,9 +346,13 @@ jobs:
           kill -9 $unpriv
           report
           step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
-          step "2: full e2e"
-          sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
-          code=$?
+          code=0
+          for round in 1 2 3; do
+            step "2: full e2e, round $round"
+            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
+            c=$?; [ $c != 0 ] && code=$c
+            sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
+          done
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
           kill $monitor
