@@ -260,8 +260,8 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          ./build.sh radbin mac_demon_test debug clang
-          echo "::notice title=build::radbin & mac_demon_test built"
+          ./build.sh radbin raddbg_non_graphical mac_demon_test debug clang
+          echo "::notice title=build::radbin, raddbg_non_graphical & mac_demon_test built"
 
       - name: Demon Tests
         timeout-minutes: 6
@@ -292,6 +292,33 @@ jobs:
         with:
           name: mac-demon-test-output
           path: build/demon_test.txt
+          if-no-files-found: ignore
+
+      - name: End-To-End Test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set +e
+          sudo env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build > build/e2e_test.txt 2>&1 < /dev/null &
+          pid=$!
+          for i in $(seq 1 240); do ps -p "$pid" > /dev/null || break; sleep 1; done
+          ps -p "$pid" > /dev/null && sudo pkill -9 -f e2e_test.sh
+          wait "$pid"
+          code=$?
+          sudo pkill -9 -f raddbg_non_graphical
+          sudo pkill -9 -f mac_demon_test_target
+          cat build/e2e_test.txt
+          exit $code
+
+      - name: Upload End-To-End Test Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-e2e-test-output
+          path: |
+            build/e2e_test.txt
+            build/e2e/
           if-no-files-found: ignore
 
       - name: Debug Info Conversion
