@@ -2081,55 +2081,130 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
       envp[count] = 0;
     }
 
-    //- file actions
-    posix_spawn_file_actions_t file_actions;
-    posix_spawn_file_actions_init(&file_actions);
-    if(params->path.size != 0)
-    {
-      posix_spawn_file_actions_addchdir_np(&file_actions, (char *)push_str8_copy(scratch.arena, params->path).str);
-    }
+    //- spawn: fork, request tracing (PT_TRACE_ME), exec
+    //
+    // NOTE: the child stops (a ptrace stop) right after exec. unlike a
+    // process spawned w/ POSIX_SPAWN_START_SUSPENDED, a process in a ptrace
+    // stop can still be killed, if we then turn out not to be allowed to get
+    // its task port. between fork & exec, the child only makes
+    // async-signal-safe calls.
+    //
+    char *work_dir = (params->path.size != 0) ? (char *)push_str8_copy(scratch.arena, params->path).str : 0;
+    int std_fds[3] = {-1, -1, -1};
     {
       File std_files[3] = {params->stdin_file, params->stdout_file, params->stderr_file};
       for(int fd = 0; fd < 3; fd += 1)
       {
         if(!file_match(std_files[fd], file_zero()))
         {
-          posix_spawn_file_actions_adddup2(&file_actions, (int)std_files[fd].u64[0], fd);
-        }
-        else
-        {
-          posix_spawn_file_actions_addinherit_np(&file_actions, fd);
+          std_fds[fd] = (int)std_files[fd].u64[0];
         }
       }
     }
-
-    //- attributes: start suspended, default signal state, no inherited fds
-    posix_spawnattr_t attr;
-    posix_spawnattr_init(&attr);
+    int error_pipe[2] = {-1, -1};
+    if(pipe(error_pipe) != 0)
     {
-      sigset_t all_signals;
-      sigset_t no_signals;
-      sigfillset(&all_signals);
-      sigemptyset(&no_signals);
-      posix_spawnattr_setsigdefault(&attr, &all_signals);
-      posix_spawnattr_setsigmask(&attr, &no_signals);
-      posix_spawnattr_setflags(&attr, (short)(POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT));
-      cpu_type_t cpu_types[1] = {CPU_TYPE_X86_64};
-      size_t cpu_types_set = 0;
-      posix_spawnattr_setbinpref_np(&attr, 1, cpu_types, &cpu_types_set);
+      log_infof("mac demon: pipe() failed: %s\n", strerror(errno));
     }
-
-    //- spawn
-    int spawn_error = posix_spawn(&pid, argv[0], &file_actions, &attr, argv, envp);
-    posix_spawnattr_destroy(&attr);
-    posix_spawn_file_actions_destroy(&file_actions);
-    if(spawn_error != 0)
+    else
     {
-      log_infof("mac demon: posix_spawn(\"%s\") failed: %s\n", argv[0], strerror(spawn_error));
-      pid = 0;
+      fcntl(error_pipe[0], F_SETFD, FD_CLOEXEC);
+      fcntl(error_pipe[1], F_SETFD, FD_CLOEXEC);
+      pid = fork();
+      if(pid == 0)
+      {
+        int child_error = 0;
+        
+        // default signal state
+        sigset_t no_signals;
+        sigemptyset(&no_signals);
+        sigprocmask(SIG_SETMASK, &no_signals, 0);
+        struct sigaction default_action = {0};
+        default_action.sa_handler = SIG_DFL;
+        for(int signo = 1; signo < NSIG; signo += 1)
+        {
+          if(signo != SIGKILL && signo != SIGSTOP)
+          {
+            sigaction(signo, &default_action, 0);
+          }
+        }
+        
+        // working directory, std handles, no other inherited fds
+        if(child_error == 0 && work_dir != 0 && chdir(work_dir) != 0) { child_error = errno; }
+        for(int fd = 0; fd < 3 && child_error == 0; fd += 1)
+        {
+          if(std_fds[fd] >= 0 && std_fds[fd] != fd && dup2(std_fds[fd], fd) < 0) { child_error = errno; }
+        }
+        if(child_error == 0)
+        {
+          int max_fd = getdtablesize();
+          for(int fd = 3; fd < max_fd; fd += 1)
+          {
+            if(fd != error_pipe[1])
+            {
+              close(fd);
+            }
+          }
+        }
+        
+        // trace & exec
+        if(child_error == 0 && ptrace(PT_TRACE_ME, 0, 0, 0) != 0) { child_error = errno; }
+        if(child_error == 0)
+        {
+          execve(argv[0], argv, envp);
+          child_error = errno;
+        }
+        write(error_pipe[1], &child_error, sizeof(child_error));
+        _exit(127);
+      }
+      close(error_pipe[1]);
+      if(pid < 0)
+      {
+        log_infof("mac demon: fork() failed: %s\n", strerror(errno));
+        pid = 0;
+      }
+      
+      // did the child fail before/at exec?
+      if(pid != 0)
+      {
+        int child_error = 0;
+        ssize_t read_size = 0;
+        do { read_size = read(error_pipe[0], &child_error, sizeof(child_error)); } while(read_size < 0 && errno == EINTR);
+        if(read_size == sizeof(child_error))
+        {
+          log_infof("mac demon: failed to launch \"%s\": %s\n", argv[0], strerror(child_error));
+          int status = 0;
+          waitpid(pid, &status, 0);
+          pid = 0;
+        }
+      }
+      close(error_pipe[0]);
     }
-
-    //- get task port, install exception port, trace
+    
+    //- wait for the post-exec stop
+    if(pid != 0)
+    {
+      int status = 0;
+      pid_t wait_result = 0;
+      do { wait_result = waitpid(pid, &status, WUNTRACED); } while(wait_result < 0 && errno == EINTR);
+      if(wait_result != pid || !WIFSTOPPED(status))
+      {
+        log_infof("mac demon: \"%s\" did not stop after exec\n", argv[0]);
+        if(wait_result == pid && !WIFEXITED(status) && !WIFSIGNALED(status))
+        {
+          kill(pid, SIGKILL);
+          waitpid(pid, &status, 0);
+        }
+        pid = 0;
+      }
+    }
+    
+    //- get the task port; switch from ptrace-stop tracing to Mach exceptions
+    //
+    // NOTE: PT_ATTACHEXC re-attaches w/ signals delivered as exceptions; it
+    // sends SIGSTOP, which arrives (as an exception) before the process runs
+    // any code of its own, & completes the launch handshake.
+    //
     if(pid != 0)
     {
       task_t task = MACH_PORT_NULL;
@@ -2140,44 +2215,23 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
         mac_dmn_log_task_for_pid_failure(pid, kr);
       }
       MAC_DMN_Entity *process_entity = 0;
-      B32 spawn_suspended = 1;
       if(good)
       {
         process_entity = mac_dmn_process_alloc(pid, task, MAC_DMN_ProcessState_Launching, 1);
-        
-        // NOTE: trade the spawn's (legacy) suspension for a token-based one
-        good = mac_dmn_process_suspend(&process_entity->process);
-        if(good)
-        {
-          task_resume(task);
-          spawn_suspended = 0;
-          good = mac_dmn_process_install_exception_port(&process_entity->process);
-        }
+        good = (mac_dmn_process_suspend(&process_entity->process) &&
+                mac_dmn_process_install_exception_port(&process_entity->process));
       }
       if(good)
       {
-        good = (ptrace(PT_ATTACHEXC, pid, 0, 0) == 0);
+        good = (ptrace(PT_DETACH, pid, (caddr_t)1, 0) == 0 &&
+                ptrace(PT_ATTACHEXC, pid, 0, 0) == 0);
         if(!good)
         {
-          log_infof("mac demon: ptrace(PT_ATTACHEXC, %i) failed: %s\n", pid, strerror(errno));
+          log_infof("mac demon: re-attaching to %i failed: %s\n", pid, strerror(errno));
         }
       }
       if(!good)
       {
-        // NOTE: a suspended task can't exit. w/o a task port, the spawn's
-        // suspension can still be undone by PT_ATTACHEXC (which resumes
-        // tasks stopped at spawn), so the kill below can complete.
-        if(spawn_suspended)
-        {
-          if(task != MACH_PORT_NULL)
-          {
-            task_resume(task);
-          }
-          else
-          {
-            ptrace(PT_ATTACHEXC, pid, 0, 0);
-          }
-        }
         kill(pid, SIGKILL);
         if(process_entity != 0)
         {
@@ -2189,7 +2243,7 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
           mach_port_deallocate(mach_task_self(), task);
         }
         int status = 0;
-        mac_dmn_reap(pid, 1000, &status);
+        mac_dmn_reap(pid, 2000, &status);
         pid = 0;
       }
     }
