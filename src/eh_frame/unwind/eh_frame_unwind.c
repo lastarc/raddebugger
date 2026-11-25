@@ -4,8 +4,6 @@
 internal UWND_StepResult
 eh_uwnd_step(Arch arch, MemoryMap *memory_map, UWND_ModuleInfo *module_info, U64 tls_vaddr, void *regs, U64 *cfa_out)
 {
-  Temp scratch = scratch_begin(0, 0);
-  B32 done = 0;
   UWND_StepResult result = {0};
   EH_UWND_ModuleUnwindInfo *unwind_info = (EH_UWND_ModuleUnwindInfo *)module_info->unwind_info;
   if(unwind_info != 0)
@@ -58,6 +56,22 @@ eh_uwnd_step(Arch arch, MemoryMap *memory_map, UWND_ModuleInfo *module_info, U64
         eh_read_ptr(header->table, fde_vaddr_off, ptr_ctx->pc_vaddr + fde_vaddr_off, ptr_ctx, header->table_enc, &fde_vaddr);
       }
     }
+    
+    //- rjf: unwind via FDE
+    result = eh_uwnd_step_from_fde_vaddr(arch, memory_map, ptr_ctx, header->table_enc, fde_vaddr, tls_vaddr, regs, cfa_out);
+  }
+  return result;
+}
+
+internal UWND_StepResult
+eh_uwnd_step_from_fde_vaddr(Arch arch, MemoryMap *memory_map, EH_PtrCtx *ptr_ctx, EH_PtrEnc set_loc_enc, U64 fde_vaddr, U64 tls_vaddr, void *regs, U64 *cfa_out)
+{
+  Temp scratch = scratch_begin(0, 0);
+  B32 done = 0;
+  UWND_StepResult result = {0};
+  {
+    ARCH_Info *arch_info = arch_info_from_arch(arch);
+    U64 pc = arch_ip_from_reg_block(arch_info, regs);
     
     //- rjf: parse info from FDE entry
     DW_CIE cie = {0};
@@ -248,7 +262,7 @@ eh_uwnd_step(Arch arch, MemoryMap *memory_map, UWND_ModuleInfo *module_info, U64
             //- rjf: location adjustments
             case DW_CFAOpCode_SetLoc:
             {
-              off += eh_read_ptr(inst_data, off, ptr_ctx->pc_vaddr + inst_data_off + off, ptr_ctx, header->table_enc, &new_base_pc_off);
+              off += eh_read_ptr(inst_data, off, ptr_ctx->pc_vaddr + inst_data_off + off, ptr_ctx, set_loc_enc, &new_base_pc_off);
             }break;
             case DW_CFAOpCode_AdvanceLoc:
             {

@@ -76,6 +76,7 @@ global RB_Shared *rb_shared = 0;
 ////////////////////////////////
 //~ rjf: Top-Level Entry Points
 
+internal String8 rb_macho_dsym_dwarf_path_from_image_path(Arena *arena, String8 image_path, MACHO_Bin *image_bin);
 internal void rb_entry_point(CmdLine *cmdline);
 internal void rb_thread_entry_point(void *p);
 

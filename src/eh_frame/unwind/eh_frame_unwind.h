@@ -18,5 +18,6 @@ struct EH_UWND_ModuleUnwindInfo
 //~ rjf: Unwinding Abstraction Implementation
 
 internal UWND_StepResult eh_uwnd_step(Arch arch, MemoryMap *memory_map, UWND_ModuleInfo *module_info, U64 tls_vaddr, void *regs, U64 *cfa_out);
+internal UWND_StepResult eh_uwnd_step_from_fde_vaddr(Arch arch, MemoryMap *memory_map, EH_PtrCtx *ptr_ctx, EH_PtrEnc set_loc_enc, U64 fde_vaddr, U64 tls_vaddr, void *regs, U64 *cfa_out);
 
 #endif // EH_FRAME_UNWIND_H

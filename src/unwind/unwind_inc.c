@@ -8,3 +8,6 @@
 #if defined(EH_FRAME_H)
 # include "eh_frame/unwind/eh_frame_unwind.c"
 #endif
+#if defined(MACHO_H) && defined(EH_FRAME_H)
+# include "macho/unwind/macho_unwind.c"
+#endif
