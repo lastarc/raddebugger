@@ -1,6 +1,6 @@
 #!/bin/bash
 # End-to-end macOS test: drives raddbg_non_graphical over IPC against
-# mac_demon_test_target (launch, run to a function, debug info lookups,
+# mac_demon_test_target (function breakpoint, run, debug info lookups,
 # expression evaluation, step out). Needs task_for_pid rights (run w/ sudo).
 # usage: e2e_test.sh <build dir>
 set -u
@@ -32,7 +32,8 @@ ipc state > "$out/state0.txt" 2>&1
 check "debugger answers IPC" "$out/state0.txt" "stop_count"
 stop0=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state0.txt" | head -1)
 
-ipc run_to_name target_func > /dev/null 2>&1
+ipc add_function_breakpoint target_func > "$out/cmd_bp.txt" 2>&1
+ipc run > "$out/cmd_run.txt" 2>&1
 wait_stop "$stop0" "$out/state1.txt"
 check "stopped in target_func" "$out/state1.txt" 'ip_voff_symbol: "target_func"'
 check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
@@ -41,12 +42,12 @@ stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1
 ipc eval g_counter > "$out/eval.txt" 2>&1
 check "evaluate a global" "$out/eval.txt" "g_counter"
 
-ipc step_out > /dev/null 2>&1
+ipc step_out > "$out/cmd_step_out.txt" 2>&1
 wait_stop "$stop1" "$out/state2.txt"
 check "step out to target_caller" "$out/state2.txt" 'ip_voff_symbol: "target_caller"'
 
 kill -9 $dbg 2>/dev/null
 pkill -9 -f mac_demon_test_target 2>/dev/null
-for f in state0 state1 eval state2; do echo "--- $f"; cat "$out/$f.txt"; done
+for f in state0 cmd_bp cmd_run state1 eval cmd_step_out state2; do echo "--- $f"; cat "$out/$f.txt"; done
 echo "e2e: $failures failed"
 exit $failures
