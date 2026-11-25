@@ -12,11 +12,13 @@ check() { # check <description> <file> <pattern>
   if grep -q -- "$3" "$2"; then echo "  [PASS] $1"; else echo "  [FAIL] $1"; echo "::error title=e2e::$1"; failures=$((failures+1)); fi
 }
 
+port=$((20000 + RANDOM % 20000))
 rm -f "$out/user.raddbg_user"
-"$build/raddbg_non_graphical" --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
+"$build/raddbg_non_graphical" --ipc_port:$port --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
 dbg=$!
 # NOTE: every IPC call is time-limited, so a wedged debugger can't hang the test
-ipc() { perl -e 'alarm 20; exec @ARGV' "$build/raddbg_non_graphical" --ipc --pid:$dbg "$@"; }
+ipc() { perl -e 'alarm 20; exec @ARGV' "$build/raddbg_non_graphical" --ipc --ipc_port:$port "$@"; }
+echo "== waiting for the debugger (pid $dbg, ipc port $port)"
 for i in $(seq 1 60); do ipc state 2>&1 | grep -q stop_count && break; sleep 1; done
 wait_stop() { # wait_stop <previous stop count> <output file>
   for i in $(seq 1 60); do
@@ -33,6 +35,7 @@ ipc state > "$out/state0.txt" 2>&1
 check "debugger answers IPC" "$out/state0.txt" "stop_count"
 stop0=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state0.txt" | head -1)
 
+echo "== add_target, add_function_breakpoint, run"
 ipc add_target "$build/mac_demon_test_target" > "$out/cmd_target.txt" 2>&1
 ipc add_function_breakpoint target_func > "$out/cmd_bp.txt" 2>&1
 ipc run > "$out/cmd_run.txt" 2>&1
@@ -41,9 +44,11 @@ check "stopped in target_func" "$out/state1.txt" 'ip_voff_symbol: "target_func"'
 check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
 stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1)
 
+echo "== eval"
 ipc eval g_counter > "$out/eval.txt" 2>&1
 check "evaluate a global" "$out/eval.txt" "g_counter"
 
+echo "== step_out"
 ipc step_out > "$out/cmd_step_out.txt" 2>&1
 wait_stop "$stop1" "$out/state2.txt"
 check "step out to target_caller" "$out/state2.txt" 'ip_voff_symbol: "target_caller"'

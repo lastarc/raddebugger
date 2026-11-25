@@ -282,18 +282,65 @@ jobs:
           path: build/demon_test.txt
           if-no-files-found: ignore
 
-      - name: End-To-End Test
+      - name: Debug Info Conversion
         if: ${{ !cancelled() }}
-        timeout-minutes: 8
+        timeout-minutes: 5
         shell: bash
         run: |
+          ./build/radbin --rdi build/mac_demon_test_target --out:build/mac_demon_test_target.rdi
+          ./build/radbin --dump build/mac_demon_test_target.rdi > build/mac_demon_test_target.rdi.txt
+          grep -q "'target_func'" build/mac_demon_test_target.rdi.txt
+          grep -q "'target_caller'" build/mac_demon_test_target.rdi.txt
+          grep -q "mac_demon_test_target.c" build/mac_demon_test_target.rdi.txt
+          echo "::notice title=radbin::Mach-O/dSYM -> RDI conversion OK"
+
+  e2e-macos-15-intel:
+    runs-on: macos-15-intel
+    name: mac-e2e-test-macos15-intel
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Build
+        shell: bash
+        run: ./build.sh raddbg_non_graphical mac_demon_test debug clang
+
+      - name: End-To-End Test
+        timeout-minutes: 8
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           # NOTE: root processes can't be killed by the runner, so everything
-          # run w/ sudo is time-limited from the inside.
+          # run w/ sudo is time-limited from the inside. Progress is mirrored
+          # into a check run, so it's visible even if the runner stops responding.
           set +e
+          mkdir -p build/e2e
+          check_id=$(gh api -X POST repos/${{ github.repository }}/check-runs -f name=mac-e2e-progress -f head_sha=${{ github.sha }} -f status=in_progress --jq .id 2>/dev/null)
+          report() {
+            [ -n "$check_id" ] || return 0
+            { echo '```'; date -u; echo "--- e2e"; tail -n 40 build/e2e_test.txt 2>/dev/null
+              echo "--- debugger"; tail -n 20 build/e2e/debugger.txt 2>/dev/null
+              echo "--- ps"; ps -axo pid,ppid,user,stat,%cpu,rss,etime,comm -r | head -n 15
+              echo "--- vm"; vm_stat | head -n 8; echo '```'; } > build/e2e_report.md
+            gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f "output[title]=e2e progress" -F "output[summary]=@build/e2e_report.md" > /dev/null 2>&1
+          }
+          ( while true; do sleep 10; report; done ) &
+          monitor=$!
           sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build > build/e2e_test.txt 2>&1 < /dev/null
           code=$?
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
+          kill $monitor
+          report
+          [ -n "$check_id" ] && gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f status=completed -f conclusion=$([ $code = 0 ] && echo success || echo failure) > /dev/null 2>&1
           cat build/e2e_test.txt
           exit $code
 
@@ -306,18 +353,6 @@ jobs:
             build/e2e_test.txt
             build/e2e/
           if-no-files-found: ignore
-
-      - name: Debug Info Conversion
-        if: ${{ !cancelled() }}
-        timeout-minutes: 5
-        shell: bash
-        run: |
-          ./build/radbin --rdi build/mac_demon_test_target --out:build/mac_demon_test_target.rdi
-          ./build/radbin --dump build/mac_demon_test_target.rdi > build/mac_demon_test_target.rdi.txt
-          grep -q "'target_func'" build/mac_demon_test_target.rdi.txt
-          grep -q "'target_caller'" build/mac_demon_test_target.rdi.txt
-          grep -q "mac_demon_test_target.c" build/mac_demon_test_target.rdi.txt
-          echo "::notice title=radbin::Mach-O/dSYM -> RDI conversion OK"
 
   gui-smoke-macos-15-intel:
     runs-on: macos-15-intel

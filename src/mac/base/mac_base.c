@@ -1892,8 +1892,8 @@ process_detach(Process process)
 internal B32
 process_kill(Process process)
 {
-  int error_code = kill((pid_t)process.u64[0], SIGKILL);
-  B32 is_killed = error_code == 0;
+  // NOTE: a zero pid would signal our whole process group
+  B32 is_killed = !process_match(process, process_zero()) && kill((pid_t)process.u64[0], SIGKILL) == 0;
   return is_killed;
 }
 
