@@ -336,7 +336,7 @@ jobs:
           }
           echo "phase 0: monitor up" > build/e2e_test.txt
           report
-          ( while true; do sleep 1; report; done ) &
+          sudo env GH_TOKEN="$GH_TOKEN" python3 src/mac/tests/ci_monitor.py ${{ github.repository }} "$check_id" build/e2e_test.txt build/e2e/logs/ctrl_thread.raddbg_log > build/e2e/monitor.txt 2>&1 &
           monitor=$!
           # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
           ./build/raddbg_non_graphical --ipc_port:7533 --no_focus_on_stop --user:build/e2e/unpriv.raddbg_user > build/e2e/unpriv_debugger.txt 2>&1 < /dev/null &
@@ -346,22 +346,17 @@ jobs:
           grep -q stop_count build/e2e/unpriv_state.txt && echo "phase 1: unprivileged IPC OK" >> build/e2e_test.txt || echo "phase 1: unprivileged IPC FAILED" >> build/e2e_test.txt
           kill -9 $unpriv
           report
-          step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
+          step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
           code=0
-          sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          # experiment A: demon only (no raddbg), debuggee held stopped at a breakpoint for 60s
-          step "A: demon-only stopped debuggee, 60s"
-          sudo perl -e 'alarm 150; exec @ARGV' env MAC_DEMON_TEST_HOLD_SECONDS=60 ./build/mac_demon_test ./build/mac_demon_test_target >> build/e2e_test.txt 2>&1 < /dev/null
-          sudo pkill -9 -f mac_demon_test_target
-          step "A done"
-          # experiment B: root raddbg_non_graphical, no target, 60s
-          step "B: root debugger, no target, 60s"
-          sudo perl -e 'alarm 90; exec @ARGV' sh -c './build/raddbg_non_graphical --ipc_port:7541 --no_focus_on_stop --user:build/e2e/b.raddbg_user > build/e2e/b.txt 2>&1 < /dev/null & p=$!; sleep 60; kill -9 $p'
-          step "B done"
-          sudo pkill -f "log stream"
+          for round in 1 2 3; do
+            step "2: root e2e, round $round"
+            sudo perl -e 'alarm 120; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
+            c=$?; [ $c != 0 ] && code=$c
+            sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
+          done
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
-          kill $monitor
+          sudo pkill -f ci_monitor.py
           report
           [ -n "$check_id" ] && gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f status=completed -f conclusion=$([ $code = 0 ] && echo success || echo failure) > /dev/null 2>&1
           cat build/e2e_test.txt
