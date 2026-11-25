@@ -329,7 +329,7 @@ jobs:
             { echo '```'; date -u; echo "--- e2e"; tail -n 25 build/e2e_test.txt 2>/dev/null
               echo "--- ctrl log"; tail -n 60 build/e2e/logs/ctrl_thread.raddbg_log 2>/dev/null
               echo "--- debugger"; tail -n 8 build/e2e/debugger.txt 2>/dev/null
-              echo "--- limiter"; tail -n 5 build/e2e/limiter.txt 2>/dev/null
+              echo "--- syslog"; grep -E "kernel|jetsam|memorystatus|raddbg|mac_demon|amfi|taskgated|panic|EXC_|sandbox" build/e2e/syslog.txt 2>/dev/null | grep -v "e2e_report" | tail -n 40 | cut -c1-220
               echo "--- ps"; ps -axo pid,ppid,user,stat,%cpu,rss,etime,comm -r | head -n 8; ps -axo pid,ppid,stat,%cpu,rss,etime,command | grep -E "raddbg|mac_demon_test_target" | grep -v grep | cut -c1-200
               echo "--- vm"; vm_stat | sed -n 2,4p; sysctl vm.swapusage; echo '```'; } > build/e2e_report.md
             gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f "output[title]=e2e progress" -F "output[summary]=@build/e2e_report.md" > /dev/null 2>&1
@@ -348,14 +348,14 @@ jobs:
           report
           step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
           code=0
-          sudo python3 src/mac/tests/memory_limiter.py "build/raddbg_non_graphical|mac_demon_test_target|radbin" 3072 > build/e2e/limiter.txt 2>&1 &
+          sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
           for round in 1 2 3; do
             step "2: root e2e, round $round"
             sudo perl -e 'alarm 120; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
             c=$?; [ $c != 0 ] && code=$c
             sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
           done
-          sudo pkill -f memory_limiter.py
+          sudo pkill -f "log stream"
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
           kill $monitor

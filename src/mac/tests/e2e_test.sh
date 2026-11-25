@@ -44,6 +44,8 @@ check "stopped in target_func" "$out/state1.txt" 'ip_voff_symbol: "target_func"'
 check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
 stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1)
 
+echo "== idle for 10s after the stop"
+sleep 10
 echo "== eval"
 # NOTE: debug info loads asynchronously; evaluations fail until it's in
 for i in $(seq 1 20); do
