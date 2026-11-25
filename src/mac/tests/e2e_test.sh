@@ -13,10 +13,10 @@ check() { # check <description> <file> <pattern>
 }
 
 rm -f "$out/user.raddbg_user"
-"$build/raddbg_non_graphical" --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" "$build/mac_demon_test_target" > "$out/debugger.txt" 2>&1 < /dev/null &
+"$build/raddbg_non_graphical" --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
 dbg=$!
-sleep 3
 ipc() { "$build/raddbg_non_graphical" --ipc --pid:$dbg "$@"; }
+for i in $(seq 1 60); do ipc state 2>&1 | grep -q stop_count && break; sleep 1; done
 wait_stop() { # wait_stop <previous stop count> <output file>
   for i in $(seq 1 60); do
     ipc state > "$2" 2>&1
@@ -32,6 +32,7 @@ ipc state > "$out/state0.txt" 2>&1
 check "debugger answers IPC" "$out/state0.txt" "stop_count"
 stop0=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state0.txt" | head -1)
 
+ipc add_target "$build/mac_demon_test_target" > "$out/cmd_target.txt" 2>&1
 ipc add_function_breakpoint target_func > "$out/cmd_bp.txt" 2>&1
 ipc run > "$out/cmd_run.txt" 2>&1
 wait_stop "$stop0" "$out/state1.txt"
@@ -48,6 +49,6 @@ check "step out to target_caller" "$out/state2.txt" 'ip_voff_symbol: "target_cal
 
 kill -9 $dbg 2>/dev/null
 pkill -9 -f mac_demon_test_target 2>/dev/null
-for f in state0 cmd_bp cmd_run state1 eval cmd_step_out state2; do echo "--- $f"; cat "$out/$f.txt"; done
+for f in state0 cmd_target cmd_bp cmd_run state1 eval cmd_step_out state2; do echo "--- $f"; cat "$out/$f.txt"; done
 echo "e2e: $failures failed"
 exit $failures
