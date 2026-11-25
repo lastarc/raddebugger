@@ -1609,6 +1609,51 @@ mac_dmn_prev_trap_exists(MAC_DMN_Entity *process, U64 vaddr)
   return result;
 }
 
+// NOTE: on recent macOS, dyld switches from its on-disk copy to the copy in
+// the shared cache early in process startup; later image list changes are
+// announced via the cached copy's notifier. dyld's image info struct always
+// points at the active notifier, so (once dyld has initialized) it is added
+// to the process' notifier traps. pointers outside of a known dyld image are
+// ignored (the struct may not be initialized / rebased yet).
+internal void
+mac_dmn_refresh_dyld_notifier(MAC_DMN_Process *process)
+{
+  task_dyld_info_data_t dyld_info = {0};
+  mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+  struct { U32 version; U32 info_array_count; U64 info_array; U64 notification; } all_image_infos = {0};
+  if(task_info(process->task, TASK_DYLD_INFO, (task_info_t)&dyld_info, &count) == KERN_SUCCESS &&
+     dyld_info.all_image_info_addr != 0 &&
+     mac_dmn_read_struct(process->task, dyld_info.all_image_info_addr, &all_image_infos) &&
+     all_image_infos.notification != 0)
+  {
+    U64 vaddr = all_image_infos.notification;
+    B32 in_dyld = 0;
+    for(MAC_DMN_Entity *m = process->first_module; m != 0 && !in_dyld; m = m->module.next)
+    {
+      if(m->module.base_vaddr <= vaddr && vaddr < m->module.base_vaddr + m->module.size)
+      {
+        String8 name = str8_skip_last_slash(m->module.path);
+        in_dyld = str8_match(name, str8_lit("dyld"), 0);
+      }
+    }
+    B32 known = 0;
+    for(U64 idx = 0; idx < process->notifier_count; idx += 1)
+    {
+      known |= (process->notifier_vaddrs[idx] == vaddr);
+    }
+    if(in_dyld && !known)
+    {
+      if(process->notifier_count >= MAC_DMN_MAX_NOTIFIER_TRAPS)
+      {
+        MemoryCopy(&process->notifier_vaddrs[0], &process->notifier_vaddrs[1], sizeof(process->notifier_vaddrs[0])*(MAC_DMN_MAX_NOTIFIER_TRAPS-1));
+        process->notifier_count -= 1;
+      }
+      process->notifier_vaddrs[process->notifier_count] = vaddr;
+      process->notifier_count += 1;
+    }
+  }
+}
+
 internal void
 mac_dmn_push_handshake_events(Arena *arena, DMN_EventList *events, MAC_DMN_Entity *process_entity, B32 is_attach)
 {
@@ -1645,6 +1690,7 @@ mac_dmn_push_handshake_events(Arena *arena, DMN_EventList *events, MAC_DMN_Entit
 
   //- dyld notification traps
   mac_dmn_find_dyld_notifiers(process);
+  mac_dmn_refresh_dyld_notifier(process);
 
   //- handshake
   {
@@ -1742,9 +1788,10 @@ mac_dmn_handle_exception(Arena *arena, DMN_EventList *events, MAC_DMN_RunCtx *ru
     //- signals
     case EXC_SOFTWARE:
     {
-      if(is_soft_signal && expected_soft_signo != 0 && signo == expected_soft_signo)
+      if(is_soft_signal && ((expected_soft_signo != 0 && signo == expected_soft_signo) || signo == SIGKILL))
       {
-        // NOTE: the signal for a hardware exception we already passed on
+        // NOTE: the signal for a hardware exception we already passed on, or
+        // SIGKILL (which can't be stopped; the exit is reported once the task dies)
         ptrace(PT_THUPDATE, process->pid, (caddr_t)(uintptr_t)thread->port, (int)signo);
         mac_dmn_reply_exception(reply_port, KERN_SUCCESS);
       }
@@ -1830,6 +1877,7 @@ mac_dmn_handle_exception(Arena *arena, DMN_EventList *events, MAC_DMN_RunCtx *ru
           {
             mac_dmn_sync_modules(arena, events, process_entity, thread_entity, &candidates, 1);
           }
+          mac_dmn_refresh_dyld_notifier(process);
           scratch_end(scratch);
         }
         else if(mac_dmn_prev_trap_exists(process_entity, trap_vaddr) && !mac_dmn_written_trap_exists(&run->written_traps, process_entity, trap_vaddr))
@@ -2833,26 +2881,12 @@ dmn_ctrl_run(Arena *arena, DMN_CtrlCtx *ctx, DMN_RunCtrls *ctrls)
       MAC_DMN_Process *process = &p->process;
       if(!process->is_dead && process->state == MAC_DMN_ProcessState_Normal && process->notifier_searched && process->notifier_count == 0)
       {
-        // NOTE: once dyld has initialized, its image info struct points at
-        // its notification function; use it if the symbol search failed.
-        {
-          task_dyld_info_data_t dyld_info = {0};
-          mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
-          struct { U32 version; U32 info_array_count; U64 info_array; U64 notification; } all_image_infos = {0};
-          if(task_info(process->task, TASK_DYLD_INFO, (task_info_t)&dyld_info, &count) == KERN_SUCCESS &&
-             dyld_info.all_image_info_addr != 0 &&
-             mac_dmn_read_struct(process->task, dyld_info.all_image_info_addr, &all_image_infos) &&
-             all_image_infos.notification != 0)
-          {
-            process->notifier_vaddrs[0] = all_image_infos.notification;
-            process->notifier_count = 1;
-          }
-        }
         MAC_DMN_ImageCandidateList candidates = {0};
         if(mac_dmn_image_candidates_from_dyld(iter_temp.arena, &candidates, process))
         {
           mac_dmn_sync_modules(arena, &events, p, process->first_thread, &candidates, 1);
         }
+        mac_dmn_refresh_dyld_notifier(process);
       }
     }
     
