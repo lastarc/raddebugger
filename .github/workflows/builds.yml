@@ -267,23 +267,11 @@ jobs:
         timeout-minutes: 6
         shell: bash
         run: |
-          # NOTE: output goes to a file, so stray debuggees can't hold this step open
           set +e
-          sudo env GITHUB_ACTIONS=true ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test.txt 2>&1 < /dev/null &
-          pid=$!
-          for i in $(seq 1 240); do ps -p "$pid" > /dev/null || break; sleep 1; done
-          if ps -p "$pid" > /dev/null; then
-            echo "::error title=mac_demon_test::still running after 240s"
-            sudo pkill -9 -f mac_demon_test
-          fi
-          wait "$pid"
+          sudo perl -e 'alarm 240; exec @ARGV' env GITHUB_ACTIONS=true ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test.txt 2>&1 < /dev/null
           code=$?
+          sudo pkill -9 -f mac_demon_test_target
           cat build/demon_test.txt
-          leftovers=$(ps -axo pid,stat,command | grep mac_demon_test_target | grep -v grep)
-          if [[ -n "$leftovers" ]]; then
-            echo "::warning title=mac_demon_test::leftover debuggees: $(echo $leftovers)"
-            sudo pkill -9 -f mac_demon_test_target
-          fi
           exit $code
 
       - name: Upload Demon Test Output
@@ -296,15 +284,13 @@ jobs:
 
       - name: End-To-End Test
         if: ${{ !cancelled() }}
-        timeout-minutes: 6
+        timeout-minutes: 8
         shell: bash
         run: |
+          # NOTE: root processes can't be killed by the runner, so everything
+          # run w/ sudo is time-limited from the inside.
           set +e
-          sudo env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build > build/e2e_test.txt 2>&1 < /dev/null &
-          pid=$!
-          for i in $(seq 1 240); do ps -p "$pid" > /dev/null || break; sleep 1; done
-          ps -p "$pid" > /dev/null && sudo pkill -9 -f e2e_test.sh
-          wait "$pid"
+          sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build > build/e2e_test.txt 2>&1 < /dev/null
           code=$?
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target

@@ -15,7 +15,8 @@ check() { # check <description> <file> <pattern>
 rm -f "$out/user.raddbg_user"
 "$build/raddbg_non_graphical" --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
 dbg=$!
-ipc() { "$build/raddbg_non_graphical" --ipc --pid:$dbg "$@"; }
+# NOTE: every IPC call is time-limited, so a wedged debugger can't hang the test
+ipc() { perl -e 'alarm 20; exec @ARGV' "$build/raddbg_non_graphical" --ipc --pid:$dbg "$@"; }
 for i in $(seq 1 60); do ipc state 2>&1 | grep -q stop_count && break; sleep 1; done
 wait_stop() { # wait_stop <previous stop count> <output file>
   for i in $(seq 1 60); do
