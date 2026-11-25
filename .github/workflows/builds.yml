@@ -332,9 +332,22 @@ jobs:
               echo "--- vm"; vm_stat | head -n 8; echo '```'; } > build/e2e_report.md
             gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f "output[title]=e2e progress" -F "output[summary]=@build/e2e_report.md" > /dev/null 2>&1
           }
-          ( while true; do sleep 10; report; done ) &
+          echo "phase 0: monitor up" > build/e2e_test.txt
+          report
+          ( while true; do sleep 5; report; done ) &
           monitor=$!
-          sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build > build/e2e_test.txt 2>&1 < /dev/null
+          # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
+          ./build/raddbg_non_graphical --ipc_port:7533 --no_focus_on_stop --user:build/e2e/unpriv.raddbg_user > build/e2e/unpriv_debugger.txt 2>&1 < /dev/null &
+          unpriv=$!
+          echo "phase 1: unprivileged debugger pid $unpriv" >> build/e2e_test.txt
+          for i in $(seq 1 30); do perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7533 state > build/e2e/unpriv_state.txt 2>&1 && grep -q stop_count build/e2e/unpriv_state.txt && break; sleep 1; done
+          grep -q stop_count build/e2e/unpriv_state.txt && echo "phase 1: unprivileged IPC OK" >> build/e2e_test.txt || echo "phase 1: unprivileged IPC FAILED" >> build/e2e_test.txt
+          kill -9 $unpriv
+          report
+          sleep 5
+          echo "phase 2: privileged e2e" >> build/e2e_test.txt
+          report
+          sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
           code=$?
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
