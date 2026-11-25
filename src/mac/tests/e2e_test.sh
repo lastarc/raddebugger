@@ -16,6 +16,10 @@ port=$((20000 + RANDOM % 20000))
 rm -f "$out/user.raddbg_user"
 "$build/raddbg_non_graphical" --ipc_port:$port --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
 dbg=$!
+# NOTE: CI diagnostics: periodically sample the debugger's threads (only if asked)
+if [[ -n "${E2E_SAMPLE:-}" ]]; then
+  ( while kill -0 $dbg 2>/dev/null; do sample $dbg 1 -mayDie -file "$out/sample.tmp" > /dev/null 2>&1 && mv "$out/sample.tmp" "$out/sample.txt"; sleep 2; done ) &
+fi
 # NOTE: every IPC call is time-limited, so a wedged debugger can't hang the test
 ipc() { perl -e 'alarm 20; exec @ARGV' "$build/raddbg_non_graphical" --ipc --ipc_port:$port "$@"; }
 echo "== waiting for the debugger (pid $dbg, ipc port $port)"

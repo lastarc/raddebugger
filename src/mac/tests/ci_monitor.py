@@ -39,6 +39,15 @@ def suspended_tasks():
       out.append(f"{pid} suspend_count={info.suspend_count} {name_of(pid)}")
   return out
 
+def sample_summary(path):
+  try:
+    with open(path, errors="replace") as f: text = f.read()
+  except OSError: return ""
+  a = text.find("Sort by top of stack")
+  b = text.find("Binary Images")
+  head = text[:3000]
+  return (text[a:b] if a >= 0 else "")[:6000] + "\n--- sample head\n" + head
+
 def tail(path, n):
   try:
     with open(path, errors="replace") as f: return "".join(f.readlines()[-n:])
@@ -74,7 +83,7 @@ while True:
   try: susp = suspended_tasks()
   except Exception as e: susp = [f"error: {e!r}"]
   text = "```\n" + time.strftime("%H:%M:%S") + f"\nspawn: {spawn_state}\n--- suspended tasks\n" + "\n".join(susp) + \
-         "\n--- progress\n" + tail(progress_path, 25) + "\n--- log\n" + tail(log_path, 30) + "```"
+         "\n--- progress\n" + tail(progress_path, 25) + "\n--- log\n" + tail(log_path, 30) + "\n--- sample\n" + sample_summary(os.path.join(os.path.dirname(progress_path), "e2e", "sample.txt")) + "```"
   try: post(text)
   except Exception: pass
   time.sleep(1)
