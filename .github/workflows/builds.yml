@@ -269,7 +269,7 @@ jobs:
         run: |
           # NOTE: output goes to a file, so stray debuggees can't hold this step open
           set +e
-          sudo --preserve-env=GITHUB_ACTIONS ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test.txt 2>&1 < /dev/null &
+          sudo env GITHUB_ACTIONS=true ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test.txt 2>&1 < /dev/null &
           pid=$!
           for i in $(seq 1 240); do ps -p "$pid" > /dev/null || break; sleep 1; done
           if ps -p "$pid" > /dev/null; then
@@ -324,25 +324,15 @@ jobs:
           ./build/raddbg > build/raddbg_output.txt 2>&1 < /dev/null &
           pid=$!
           sleep 20
-          perl -e 'alarm 20; exec @ARGV' screencapture -x build/raddbg_screenshot.png || true
-          if kill -0 "$pid" 2>/dev/null; then
+          if ps -p "$pid" > /dev/null; then
             echo "::notice title=raddbg::running after 20s"
             kill -9 "$pid"
+            code=0
           else
             code=0
             wait "$pid" || code=$?
             echo "::error title=raddbg::exited early (code $code)"
-            head -c 2000 build/raddbg_output.txt | tr '\n' ' ' | sed 's/^/::error title=raddbg output::/'
-            echo
-            exit 1
+            code=1
           fi
-
-      - name: Upload GUI Smoke Test Artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-gui-smoke-test
-          path: |
-            build/raddbg_screenshot.png
-            build/raddbg_output.txt
-          if-no-files-found: ignore
+          head -c 4000 build/raddbg_output.txt
+          exit $code
