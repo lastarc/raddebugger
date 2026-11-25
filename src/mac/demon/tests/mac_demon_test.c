@@ -58,8 +58,56 @@ global U64 t_passes = 0;
 global volatile U64 t_deadline_us = 0;
 global Arena *t_arena = 0;
 global DMN_CtrlCtx *t_ctx = 0;
+global B32 t_in_github_actions = 0;
+global char *t_section = "";
+global volatile pid_t t_pids[64] = {0};
+global volatile U32 t_pid_count = 0;
+global char t_last_events[512] = {0};
 
-#define T_CHECK(cond, ...) do { if(cond) { t_passes += 1; printf("  [PASS] "); } else { t_failures += 1; printf("  [FAIL] "); } printf(__VA_ARGS__); printf("\n"); fflush(stdout); } while(0)
+// NOTE: keeps a short, single-line trail of recent events, for annotations
+internal void
+t_note_event(String8 string)
+{
+  U64 cur_len = strlen(t_last_events);
+  U64 add_len = Min(string.size, 120);
+  if(cur_len + add_len + 3 >= sizeof(t_last_events))
+  {
+    U64 drop = cur_len + add_len + 3 - sizeof(t_last_events) + 1;
+    drop = Min(drop, cur_len);
+    memmove(t_last_events, t_last_events + drop, cur_len - drop + 1);
+    cur_len -= drop;
+  }
+  if(cur_len != 0) { strcat(t_last_events, " ; "); cur_len += 3; }
+  for(U64 idx = 0; idx < add_len; idx += 1)
+  {
+    char c = (char)string.str[idx];
+    t_last_events[cur_len + idx] = (c == '\n' || c == '\r' || c == '%') ? ' ' : c;
+  }
+  t_last_events[cur_len + add_len] = 0;
+}
+
+// NOTE: on GitHub Actions, failures are also emitted as annotations
+#define T_CHECK(cond, ...) do { B32 t__ok = !!(cond); if(t__ok) { t_passes += 1; printf("  [PASS] "); } else { t_failures += 1; printf("  [FAIL] "); } printf(__VA_ARGS__); printf("\n"); if(!t__ok && t_in_github_actions) { printf("::error title=mac_demon_test (%s)::", t_section); printf(__VA_ARGS__); printf(" [recent events: %s]\n", t_last_events); } fflush(stdout); } while(0)
+
+internal void
+t_track_pid(pid_t pid)
+{
+  if(pid > 0 && t_pid_count < ArrayCount(t_pids))
+  {
+    t_pids[t_pid_count] = pid;
+    t_pid_count += 1;
+  }
+}
+
+// NOTE: debuggees inherit stdout; leftovers would keep CI steps from finishing
+internal void
+t_kill_all_targets(void)
+{
+  for(U32 idx = 0; idx < t_pid_count; idx += 1)
+  {
+    kill(t_pids[idx], SIGKILL);
+  }
+}
 
 internal void *
 t_watchdog_main(void *p)
@@ -71,8 +119,10 @@ t_watchdog_main(void *p)
     if(deadline != 0 && now_time_us() > deadline)
     {
       printf("  [FAIL] timed out\n");
+      if(t_in_github_actions) { printf("::error title=mac_demon_test (%s)::timed out [recent events: %s]\n", t_section, t_last_events); }
       printf("\n%llu passed, %llu failed (+timeout)\n", t_passes, t_failures + 1);
       fflush(stdout);
+      t_kill_all_targets();
       _exit(1);
     }
   }
@@ -111,6 +161,12 @@ t_next(DMN_RunCtrls *ctrls)
   {
     result = &t_next_event->v;
     t_next_event = t_next_event->next;
+    Temp scratch = scratch_begin(0, 0);
+    String8 event_string = t_string_from_event(scratch.arena, result);
+    printf("    event: %.*s\n", str8_varg(event_string));
+    fflush(stdout);
+    t_note_event(event_string);
+    scratch_end(scratch);
   }
   return result;
 }
@@ -127,9 +183,6 @@ t_expect(DMN_RunCtrls *ctrls, DMN_EventKind kind, B32 allow_exceptions)
     {
       continue;
     }
-    Temp scratch = scratch_begin(0, 0);
-    printf("    event: %.*s\n", str8_varg(t_string_from_event(scratch.arena, e)));
-    scratch_end(scratch);
     if(e->kind == kind)
     {
       result = e;
@@ -276,7 +329,9 @@ t_launch(String8 target_path, String8 arg)
   }
   params.path = str8_chop_last_slash(target_path);
   params.inherit_env = 1;
-  return dmn_ctrl_launch(t_ctx, &params);
+  U32 pid = dmn_ctrl_launch(t_ctx, &params);
+  t_track_pid((pid_t)pid);
+  return pid;
 }
 
 typedef struct T_Handshake T_Handshake;
@@ -303,9 +358,6 @@ t_handshake(DMN_RunCtrls *ctrls, String8 target_name)
     {
       e = t_next(ctrls);
       if(e == 0) { continue; }
-      Temp scratch = scratch_begin(0, 0);
-      printf("    event: %.*s\n", str8_varg(t_string_from_event(scratch.arena, e)));
-      scratch_end(scratch);
       if(e->kind == DMN_EventKind_CreateThread && dmn_handle_match(h.main_thread, dmn_handle_zero()))
       {
         h.main_thread = e->thread;
@@ -358,6 +410,7 @@ t_halter_main(void *p)
 internal void
 t_test_launch(String8 target_path)
 {
+  t_section = "launch";
   printf("launch: breakpoints, stepping, data breakpoints, unwinding, signals, modules, traps, exit\n");
   String8 target_name = str8_skip_last_slash(target_path);
   T_Symbols syms = t_symbols_from_path(target_path);
@@ -490,6 +543,7 @@ t_test_launch(String8 target_path)
 internal void
 t_test_crash(String8 target_path)
 {
+  t_section = "crash";
   printf("crash: memory fault, pass-through to the target\n");
   t_arm_timeout(30);
   U32 pid = t_launch(target_path, str8_lit("crash"));
@@ -514,6 +568,7 @@ t_test_crash(String8 target_path)
 internal void
 t_test_halt_kill(String8 target_path)
 {
+  t_section = "halt_kill";
   printf("halt & kill\n");
   t_arm_timeout(30);
   U32 pid = t_launch(target_path, str8_lit("spin"));
@@ -539,12 +594,14 @@ t_test_halt_kill(String8 target_path)
 internal void
 t_test_attach_detach(String8 target_path)
 {
+  t_section = "attach_detach";
   printf("attach & detach\n");
   t_arm_timeout(30);
   Temp scratch = scratch_begin(0, 0);
   char *argv[] = {(char *)push_str8_copy(scratch.arena, target_path).str, "spin", 0};
   pid_t pid = 0;
   int spawn_error = posix_spawn(&pid, argv[0], 0, 0, argv, *_NSGetEnviron());
+  t_track_pid(pid);
   T_CHECK(spawn_error == 0, "spawn target");
   if(spawn_error != 0) { scratch_end(scratch); return; }
   usleep(200000);
@@ -582,6 +639,7 @@ internal void
 entry_point(CmdLine *cmdline)
 {
   t_arena = arena_alloc();
+  t_in_github_actions = (getenv("GITHUB_ACTIONS") != 0);
   String8 target_path = str8_list_first(&cmdline->inputs);
   if(target_path.size == 0)
   {
@@ -604,7 +662,9 @@ entry_point(CmdLine *cmdline)
   t_test_halt_kill(target_path);
   t_test_attach_detach(target_path);
   t_deadline_us = 0;
+  t_kill_all_targets();
   printf("\n%llu passed, %llu failed\n", t_passes, t_failures);
+  if(t_in_github_actions) { printf("::notice title=mac_demon_test::%llu passed, %llu failed\n", t_passes, t_failures); }
   fflush(stdout);
   exit(t_failures == 0 ? 0 : 1);
 }
