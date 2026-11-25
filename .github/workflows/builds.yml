@@ -349,12 +349,23 @@ jobs:
           step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
           code=0
           sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          for round in 1 2 3; do
-            step "2: root e2e, round $round"
-            sudo perl -e 'alarm 120; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
-            c=$?; [ $c != 0 ] && code=$c
-            sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
-          done
+          # experiment: drive a root debugger step by step, w/ a synchronous report after each step
+          sudo sh -c './build/raddbg_non_graphical --ipc_port:7540 --no_focus_on_stop --user:build/e2e/x.raddbg_user --logs:build/e2e/logs > build/e2e/debugger.txt 2>&1 < /dev/null &'
+          x() { echo "x: $*" >> build/e2e_test.txt; perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7540 "$@" 2>&1 | grep -E "value|msgs|stop_count|running|ip_voff_symbol|^\$|ERROR" | head -n 5 >> build/e2e_test.txt; report; sleep 2; report; }
+          for i in $(seq 1 30); do perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7540 state 2>&1 | grep -q stop_count && break; sleep 1; done
+          x add_target "$PWD/build/mac_demon_test_target"
+          x add_function_breakpoint target_func
+          x run
+          sleep 5
+          x state
+          x eval 1+2
+          x eval rip
+          x eval rsp
+          x eval "*(int *)rsp"
+          x eval g_counter
+          x eval g_counter
+          x eval g_counter
+          x state
           sudo pkill -f "log stream"
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
