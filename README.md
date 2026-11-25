@@ -85,8 +85,9 @@ A benchmark of the linker's performance is below:
 # Project Development Setup / Local Build Instructions
 
 The project is actively developed both on [Windows x64](#windows-x64) and
-[Linux x64](#linux-x64) development machines. Click on whichever you'd like to
-use.
+[Linux x64](#linux-x64) development machines. An experimental
+[macOS x64](#macos-x64) port is also available. Click on whichever you'd like
+to use.
 
 ## Windows x64
 
@@ -307,6 +308,69 @@ Linker, or the `radbin` CLI binary file utility:
 ./build.sh radlink release
 ./build.sh radbin release
 ```
+
+## macOS x64
+
+The macOS port is experimental. It targets x86-64 (Intel) Macs running macOS 11
+or newer; on Apple Silicon, `build.sh` produces x86-64 binaries, which have not
+been tested (they would run, and debug x86-64 programs, under Rosetta).
+
+### 1. Installing the Required Tools
+
+Install the Xcode Command Line Tools (which provide `clang`, `codesign`, and
+`dsymutil`), if they aren't installed already:
+
+```
+xcode-select --install
+```
+
+No other dependencies are needed; the window manager, renderer, and font
+backends use Cocoa, OpenGL, and Core Text.
+
+### 2. Building
+
+`cd` to the root of the codebase, and run `build.sh`, as on Linux (it works with
+the stock `/bin/bash`):
+
+```
+./build.sh
+./build.sh release
+./build.sh radbin release
+```
+
+### 3. Debugging Permissions
+
+Debugging another process requires its task port (`task_for_pid`). `build.sh`
+ad-hoc signs `raddbg` with the `com.apple.security.cs.debugger` entitlement,
+which, with developer mode enabled, lets it debug your own programs:
+
+```
+sudo DevToolsSecurity -enable
+```
+
+If launching or attaching still fails (the reason is printed to the terminal),
+run the debugger as root (`sudo ./build/raddbg`). Programs which use the hardened
+runtime can only be debugged if they're signed with the
+`com.apple.security.get-task-allow` entitlement, and system binaries can't be
+debugged with System Integrity Protection enabled.
+
+### 4. Debug Info
+
+Debug info is read from DWARF, in `.dSYM` bundles next to executables (which
+`clang -g` creates when compiling and linking in one step). If an executable only
+has a debug map (object files built with `-g`, linked separately), `radbin`
+generates the `.dSYM` with `dsymutil` into the debugger's cache folder.
+
+### 5. Current Limitations
+
+- x86-64 debuggees only.
+- Thread-local variables can't be evaluated.
+- System libraries live in the dyld shared cache, without debug info on disk;
+  they show up in call stacks as module + offset.
+- Following child processes (`fork`/`exec`) isn't supported.
+- The `torture` test harness and the RAD Linker are not ported. Demon-level tests
+  can be run with `./build.sh mac_demon_test`, then
+  `sudo ./build/mac_demon_test ./build/mac_demon_test_target`.
 
 ---
 

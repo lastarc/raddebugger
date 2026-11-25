@@ -216,3 +216,99 @@ jobs:
             build/*.pdb
             build/torture_artifacts/**
           if-no-files-found: ignore
+
+  build-macos-15-intel:
+    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - raddbg
+          - raddbg_non_graphical
+          - raddbg_server
+          - radbin
+
+    name: ${{ matrix.target }}-clang-macos15-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Build (debug)
+        shell: bash
+        run: |
+          ./build.sh "${{ matrix.target }}" debug clang
+
+      - name: Build (release)
+        shell: bash
+        run: |
+          ./build.sh "${{ matrix.target }}" release clang
+
+  test-macos-15-intel:
+    runs-on: macos-15-intel
+    name: mac-demon-tests-macos15-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Build
+        shell: bash
+        run: |
+          ./build.sh radbin mac_demon_test debug clang
+
+      - name: Demon Tests
+        shell: bash
+        run: |
+          sudo ./build/mac_demon_test ./build/mac_demon_test_target
+
+      - name: Debug Info Conversion
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          ./build/radbin --rdi build/mac_demon_test_target --out:build/mac_demon_test_target.rdi
+          ./build/radbin --dump build/mac_demon_test_target.rdi > build/mac_demon_test_target.rdi.txt
+          grep -q "'target_func'" build/mac_demon_test_target.rdi.txt
+          grep -q "'target_caller'" build/mac_demon_test_target.rdi.txt
+          grep -q "mac_demon_test_target.c" build/mac_demon_test_target.rdi.txt
+
+      - name: Demon Tests (signed, unprivileged; informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          ./build/mac_demon_test ./build/mac_demon_test_target
+
+      - name: GUI Smoke Test
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          ./build.sh raddbg debug clang
+          ./build/raddbg > build/raddbg_output.txt 2>&1 &
+          pid=$!
+          sleep 20
+          screencapture -x build/raddbg_screenshot.png || true
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "raddbg is running"
+            kill "$pid"
+          else
+            code=0
+            wait "$pid" || code=$?
+            echo "raddbg exited early (code $code)"
+            cat build/raddbg_output.txt
+            exit 1
+          fi
+
+      - name: Upload GUI Smoke Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-gui-smoke-test
+          path: |
+            build/raddbg_screenshot.png
+            build/raddbg_output.txt
+          if-no-files-found: ignore

@@ -326,6 +326,9 @@ ds_dmn_events_from_data(Arena *arena, String8 data)
         off += str8_deserial_read_struct(data, off, &evt->module_info->tls_offset);
         off += str8_deserial_read_struct(data, off, &evt->module_info->pe_intel_pdatas_vaddr_range);
         off += str8_deserial_read_struct(data, off, &evt->module_info->eh_frame_header_vaddr_range);
+        off += str8_deserial_read_struct(data, off, &evt->module_info->macho_unwind_info_vaddr_range);
+        off += str8_deserial_read_struct(data, off, &evt->module_info->macho_eh_frame_vaddr_range);
+        off += str8_deserial_read_struct(data, off, &evt->module_info->macho_function_starts_vaddr_range);
         off += str8_deserial_read_struct(data, off, &evt->module_info->raddbg_info_voff_range);
         off += str8_deserial_read_struct(data, off, &evt->module_info->raddbg_is_attached_marker_voff);
         
@@ -392,6 +395,9 @@ ds_data_from_dmn_events(Arena *arena, DMN_EventList evts)
         str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->tls_offset);
         str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->pe_intel_pdatas_vaddr_range);
         str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->eh_frame_header_vaddr_range);
+        str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->macho_unwind_info_vaddr_range);
+        str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->macho_eh_frame_vaddr_range);
+        str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->macho_function_starts_vaddr_range);
         str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->raddbg_info_voff_range);
         str8_serial_push_struct(scratch.arena, &srl, &n->v.module_info->raddbg_is_attached_marker_voff);
         

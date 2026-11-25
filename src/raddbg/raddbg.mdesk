@@ -508,6 +508,70 @@ RD_VocabTable:
         linux_sigpwr: bool,
       @display_name("Break on Linux SIGSYS") @default(1) @description("Bad system call (Code: 31)")
         linux_sigsys: bool,
+      
+      //- macOS exception settings
+      @display_name("Break on macOS SIGHUP") @default(1) @description("Hangup (Code: 1)")
+        mac_sighup: bool,
+      @display_name("Break on macOS SIGINT") @default(1) @description("Interrupt (Code: 2)")
+        mac_sigint: bool,
+      @display_name("Break on macOS SIGQUIT") @default(1) @description("Quit (Code: 3)")
+        mac_sigquit: bool,
+      @display_name("Break on macOS SIGILL") @default(1) @description("Illegal instruction (Code: 4)")
+        mac_sigill: bool,
+      @display_name("Break on macOS SIGTRAP") @default(1) @description("Trace/breakpoint trap (Code: 5)")
+        mac_sigtrap: bool,
+      @display_name("Break on macOS SIGABRT") @default(1) @description("Abort (Code: 6)")
+        mac_sigabrt: bool,
+      @display_name("Break on macOS SIGEMT") @default(1) @description("Emulator trap (Code: 7)")
+        mac_sigemt: bool,
+      @display_name("Break on macOS SIGFPE") @default(1) @description("Floating point exception (Code: 8)")
+        mac_sigfpe: bool,
+      @display_name("Break on macOS SIGKILL") @default(1) @description("Killed (Code: 9)")
+        mac_sigkill: bool,
+      @display_name("Break on macOS SIGBUS") @default(1) @description("Bus error (Code: 10)")
+        mac_sigbus: bool,
+      @display_name("Break on macOS SIGSEGV") @default(1) @description("Segmentation fault (Code: 11)")
+        mac_sigsegv: bool,
+      @display_name("Break on macOS SIGSYS") @default(1) @description("Bad system call (Code: 12)")
+        mac_sigsys: bool,
+      @display_name("Break on macOS SIGPIPE") @default(0) @description("Broken pipe (Code: 13)")
+        mac_sigpipe: bool,
+      @display_name("Break on macOS SIGALRM") @default(0) @description("Alarm clock (Code: 14)")
+        mac_sigalrm: bool,
+      @display_name("Break on macOS SIGTERM") @default(1) @description("Terminated (Code: 15)")
+        mac_sigterm: bool,
+      @display_name("Break on macOS SIGURG") @default(0) @description("Urgent I/O condition (Code: 16)")
+        mac_sigurg: bool,
+      @display_name("Break on macOS SIGSTOP") @default(1) @description("Suspended by signal (Code: 17)")
+        mac_sigstop: bool,
+      @display_name("Break on macOS SIGTSTP") @default(1) @description("Suspended (Code: 18)")
+        mac_sigtstp: bool,
+      @display_name("Break on macOS SIGCONT") @default(0) @description("Continued (Code: 19)")
+        mac_sigcont: bool,
+      @display_name("Break on macOS SIGCHLD") @default(0) @description("Child exited (Code: 20)")
+        mac_sigchld: bool,
+      @display_name("Break on macOS SIGTTIN") @default(0) @description("Stopped on terminal input (Code: 21)")
+        mac_sigttin: bool,
+      @display_name("Break on macOS SIGTTOU") @default(0) @description("Stopped on terminal output (Code: 22)")
+        mac_sigttou: bool,
+      @display_name("Break on macOS SIGIO") @default(0) @description("I/O possible (Code: 23)")
+        mac_sigio: bool,
+      @display_name("Break on macOS SIGXCPU") @default(1) @description("CPU time limit exceeded (Code: 24)")
+        mac_sigxcpu: bool,
+      @display_name("Break on macOS SIGXFSZ") @default(1) @description("File size limit exceeded (Code: 25)")
+        mac_sigxfsz: bool,
+      @display_name("Break on macOS SIGVTALRM") @default(0) @description("Virtual timer expired (Code: 26)")
+        mac_sigvtalrm: bool,
+      @display_name("Break on macOS SIGPROF") @default(0) @description("Profiling timer expired (Code: 27)")
+        mac_sigprof: bool,
+      @display_name("Break on macOS SIGWINCH") @default(0) @description("Window size changed (Code: 28)")
+        mac_sigwinch: bool,
+      @display_name("Break on macOS SIGINFO") @default(0) @description("Information request (Code: 29)")
+        mac_siginfo: bool,
+      @display_name("Break on macOS SIGUSR1") @default(1) @description("User defined signal 1 (Code: 30)")
+        mac_sigusr1: bool,
+      @display_name("Break on macOS SIGUSR2") @default(1) @description("User defined signal 2 (Code: 31)")
+        mac_sigusr2: bool,
     }
     ```
   }

@@ -94,6 +94,37 @@ d_eval_from_string(Arena *arena, String8 string)
 }
 
 ////////////////////////////////
+//~ Exception Code Lookups
+
+internal D_ExceptionCodeKind
+d_exception_code_kind_from_code(U32 code)
+{
+  // NOTE: signal numbers are only unique per-OS (e.g. Linux & macOS both use
+  // small integers, w/ different meanings), so prefer the current OS' codes.
+  D_ExceptionCodeKind result = D_ExceptionCodeKind_Null;
+  for EachNonZeroEnumVal(D_ExceptionCodeKind, k)
+  {
+    if(d_exception_code_kind_code_table[k] == code && d_exception_code_kind_os_table[k] == OperatingSystem_CURRENT)
+    {
+      result = k;
+      break;
+    }
+  }
+  if(result == D_ExceptionCodeKind_Null)
+  {
+    for EachNonZeroEnumVal(D_ExceptionCodeKind, k)
+    {
+      if(d_exception_code_kind_code_table[k] == code)
+      {
+        result = k;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+////////////////////////////////
 //~ rjf: Layer Initialization
 
 internal void

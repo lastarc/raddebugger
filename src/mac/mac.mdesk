@@ -1,0 +1,43 @@
+// Copyright (c) Epic Games Tools
+// Licensed under the MIT license (https://opensource.org/license/mit/)
+
+////////////////////////////////
+//~ macOS (Darwin) Signal Codes
+//
+// NOTE: Darwin signal numbers differ from Linux' past SIGTRAP; the demon
+// reports exceptions with the equivalent Darwin signal number as the code.
+
+@table(name  name_lower  code  break_default  desc) MAC_SignalCodeTable:
+{
+  { SIGHUP      sighup      1   1  "Hangup" }
+  { SIGINT      sigint      2   1  "Interrupt" }
+  { SIGQUIT     sigquit     3   1  "Quit" }
+  { SIGILL      sigill      4   1  "Illegal instruction" }
+  { SIGTRAP     sigtrap     5   1  "Trace/breakpoint trap" }
+  { SIGABRT     sigabrt     6   1  "Abort" }
+  { SIGEMT      sigemt      7   1  "Emulator trap" }
+  { SIGFPE      sigfpe      8   1  "Floating point exception" }
+  { SIGKILL     sigkill     9   1  "Killed" }
+  { SIGBUS      sigbus      10  1  "Bus error" }
+  { SIGSEGV     sigsegv     11  1  "Segmentation fault" }
+  { SIGSYS      sigsys      12  1  "Bad system call" }
+  { SIGPIPE     sigpipe     13  0  "Broken pipe" }
+  { SIGALRM     sigalrm     14  0  "Alarm clock" }
+  { SIGTERM     sigterm     15  1  "Terminated" }
+  { SIGURG      sigurg      16  0  "Urgent I/O condition" }
+  { SIGSTOP     sigstop     17  1  "Suspended by signal" }
+  { SIGTSTP     sigtstp     18  1  "Suspended" }
+  { SIGCONT     sigcont     19  0  "Continued" }
+  { SIGCHLD     sigchld     20  0  "Child exited" }
+  { SIGTTIN     sigttin     21  0  "Stopped on terminal input" }
+  { SIGTTOU     sigttou     22  0  "Stopped on terminal output" }
+  { SIGIO       sigio       23  0  "I/O possible" }
+  { SIGXCPU     sigxcpu     24  1  "CPU time limit exceeded" }
+  { SIGXFSZ     sigxfsz     25  1  "File size limit exceeded" }
+  { SIGVTALRM   sigvtalrm   26  0  "Virtual timer expired" }
+  { SIGPROF     sigprof     27  0  "Profiling timer expired" }
+  { SIGWINCH    sigwinch    28  0  "Window size changed" }
+  { SIGINFO     siginfo     29  0  "Information request" }
+  { SIGUSR1     sigusr1     30  1  "User defined signal 1" }
+  { SIGUSR2     sigusr2     31  1  "User defined signal 2" }
+}

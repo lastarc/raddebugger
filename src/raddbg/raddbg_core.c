@@ -10621,15 +10621,7 @@ rd_raster_flags_from_slot(RD_FontSlot slot)
 internal String8
 rd_string_from_exception_code(U32 code)
 {
-  String8 string = {0};
-  for EachNonZeroEnumVal(D_ExceptionCodeKind, k)
-  {
-    if(code == d_exception_code_kind_code_table[k])
-    {
-      string = d_exception_code_kind_display_string_table[k];
-      break;
-    }
-  }
+  String8 string = d_exception_code_kind_display_string_table[d_exception_code_kind_from_code(code)];
   return string;
 }
 

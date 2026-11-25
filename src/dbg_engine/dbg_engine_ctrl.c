@@ -3296,14 +3296,7 @@ d_ctrl_thread__next_dmn_event(Arena *arena, DMN_CtrlCtx *ctrl_ctx, D_Msg *msg, D
               D_ExceptionCodeKind code_kind = D_ExceptionCodeKind_Null;
               if(should_filter_event)
               {
-                for(D_ExceptionCodeKind k = (D_ExceptionCodeKind)0; k < D_ExceptionCodeKind_COUNT; k = (D_ExceptionCodeKind)(k+1))
-                {
-                  if(d_exception_code_kind_code_table[k] == ev->code)
-                  {
-                    code_kind = k;
-                    break;
-                  }
-                }
+                code_kind = d_exception_code_kind_from_code(ev->code);
               }
               
               // rjf: exception code kind -> shouldn't stop? if so, do not filter
@@ -3911,6 +3904,23 @@ d_ctrl_thread__next_dmn_event(Arena *arena, DMN_CtrlCtx *ctrl_ctx, D_Msg *msg, D
             unwind_info->ptr_ctx.pc_vaddr   = module_info->eh_frame_header_vaddr_range.min;
             unwind_info->ptr_ctx.data_vaddr = module_info->eh_frame_header_vaddr_range.min;
             unwind_info->header = eh_parse_frame_hdr(eh_frame_hdr_data, byte_size_from_arch(module_info->arch), &unwind_info->ptr_ctx);
+          }
+          unwind_info_opaque = unwind_info;
+        }
+        
+        //- Mach-O compact unwinder (__unwind_info, w/ __eh_frame for DWARF-mode entries)
+        else if(dim_1u64(module_info->macho_unwind_info_vaddr_range) != 0)
+        {
+          unwinder = UWND_Unwinder_MachO;
+          MACHO_UWND_ModuleUnwindInfo *unwind_info = push_array(arena, MACHO_UWND_ModuleUnwindInfo, 1);
+          unwind_info->unwind_info_vaddr_range = module_info->macho_unwind_info_vaddr_range;
+          unwind_info->eh_frame_vaddr_range    = module_info->macho_eh_frame_vaddr_range;
+          if(0 < dim_1u64(module_info->macho_function_starts_vaddr_range) && dim_1u64(module_info->macho_function_starts_vaddr_range) <= MB(64))
+          {
+            Temp temp = temp_begin(scratch2.arena);
+            String8 function_starts_data = d_data_from_process_vaddr_range(temp.arena, process_handle, module_info->macho_function_starts_vaddr_range, 0);
+            unwind_info->function_starts = macho_uwnd_function_starts_from_data(arena, function_starts_data, base_vaddr, &unwind_info->function_starts_count);
+            temp_end(temp);
           }
           unwind_info_opaque = unwind_info;
         }

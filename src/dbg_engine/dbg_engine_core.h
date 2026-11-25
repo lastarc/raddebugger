@@ -353,6 +353,11 @@ struct D_TrapNet
 };
 
 ////////////////////////////////
+//~ Exception Code Lookups
+
+internal D_ExceptionCodeKind d_exception_code_kind_from_code(U32 code);
+
+////////////////////////////////
 //~ rjf: @eval2 Bundled Evaluation Path
 
 internal D_Eval d_eval_from_string(Arena *arena, String8 string);
