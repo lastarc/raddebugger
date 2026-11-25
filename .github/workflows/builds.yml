@@ -264,10 +264,27 @@ jobs:
           echo "::notice title=build::radbin & mac_demon_test built"
 
       - name: Demon Tests
-        timeout-minutes: 5
+        timeout-minutes: 6
         shell: bash
         run: |
-          sudo --preserve-env=GITHUB_ACTIONS ./build/mac_demon_test ./build/mac_demon_test_target
+          # NOTE: output goes to a file, so stray debuggees can't hold this step open
+          set +e
+          sudo --preserve-env=GITHUB_ACTIONS ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test.txt 2>&1 < /dev/null &
+          pid=$!
+          for i in $(seq 1 240); do ps -p "$pid" > /dev/null || break; sleep 1; done
+          if ps -p "$pid" > /dev/null; then
+            echo "::error title=mac_demon_test::still running after 240s"
+            sudo pkill -9 -f mac_demon_test
+          fi
+          wait "$pid"
+          code=$?
+          cat build/demon_test.txt
+          leftovers=$(ps -axo pid,stat,command | grep mac_demon_test_target | grep -v grep)
+          if [[ -n "$leftovers" ]]; then
+            echo "::warning title=mac_demon_test::leftover debuggees: $(echo $leftovers)"
+            sudo pkill -9 -f mac_demon_test_target
+          fi
+          exit $code
 
       - name: Debug Info Conversion
         if: ${{ !cancelled() }}
@@ -287,7 +304,16 @@ jobs:
         timeout-minutes: 3
         shell: bash
         run: |
-          ./build/mac_demon_test ./build/mac_demon_test_target
+          set +e
+          ./build/mac_demon_test ./build/mac_demon_test_target > build/demon_test_unprivileged.txt 2>&1 < /dev/null &
+          pid=$!
+          for i in $(seq 1 90); do ps -p "$pid" > /dev/null || break; sleep 1; done
+          ps -p "$pid" > /dev/null && kill -9 "$pid"
+          wait "$pid"
+          code=$?
+          cat build/demon_test_unprivileged.txt | sed 's/^::error/::warning/'
+          pkill -9 -f mac_demon_test_target
+          exit $code
 
       - name: GUI Smoke Test
         if: ${{ !cancelled() }}

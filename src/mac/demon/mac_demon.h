@@ -237,7 +237,7 @@ struct MAC_DMN_Process
   pid_t pid;
   task_t task;
   MAC_DMN_ProcessState state;
-  B32 is_suspended_by_us;
+  task_suspension_token_t suspend_token; // non-null while we hold the task suspended
   B32 is_dead;
   B32 is_child;               // launched by us (as opposed to attached to)
   B32 detach_requested;

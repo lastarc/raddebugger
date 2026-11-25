@@ -326,6 +326,12 @@ mac_dmn_process_release(MAC_DMN_Entity *entity, B32 is_in_detached_list)
       mach_port_deallocate(mach_task_self(), process->saved_exc_ports[idx]);
     }
   }
+  if(process->suspend_token != MACH_PORT_NULL)
+  {
+    // NOTE: destroying the token resumes the task (if it still exists)
+    mach_port_deallocate(mach_task_self(), process->suspend_token);
+    process->suspend_token = MACH_PORT_NULL;
+  }
   if(process->task != MACH_PORT_NULL)
   {
     mach_port_deallocate(mach_task_self(), process->task);
@@ -1515,18 +1521,39 @@ mac_dmn_state_defer_msg(MAC_DMN_Msg *msg)
 ////////////////////////////////
 //~ Stop-The-World Helpers
 
+// NOTE: suspensions are token-based (task_suspend2), so that they are undone
+// by the kernel if the debugger dies; a task left suspended can't even exit.
+internal B32
+mac_dmn_process_suspend(MAC_DMN_Process *process)
+{
+  if(process->suspend_token == MACH_PORT_NULL && !process->is_dead)
+  {
+    task_suspension_token_t token = MACH_PORT_NULL;
+    if(task_suspend2(process->task, &token) == KERN_SUCCESS)
+    {
+      process->suspend_token = token;
+    }
+  }
+  return (process->suspend_token != MACH_PORT_NULL);
+}
+
+internal void
+mac_dmn_process_resume(MAC_DMN_Process *process)
+{
+  if(process->suspend_token != MACH_PORT_NULL)
+  {
+    // NOTE: task_resume2 consumes the (send-once) token
+    task_resume2(process->suspend_token);
+    process->suspend_token = MACH_PORT_NULL;
+  }
+}
+
 internal void
 mac_dmn_suspend_all(void)
 {
   for(MAC_DMN_Entity *p = mac_dmn_state->first_process; p != 0; p = p->process.next)
   {
-    if(!p->process.is_suspended_by_us && !p->process.is_dead)
-    {
-      if(task_suspend(p->process.task) == KERN_SUCCESS)
-      {
-        p->process.is_suspended_by_us = 1;
-      }
-    }
+    mac_dmn_process_suspend(&p->process);
   }
 }
 
@@ -2113,11 +2140,19 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
         mac_dmn_log_task_for_pid_failure(pid, kr);
       }
       MAC_DMN_Entity *process_entity = 0;
+      B32 spawn_suspended = 1;
       if(good)
       {
         process_entity = mac_dmn_process_alloc(pid, task, MAC_DMN_ProcessState_Launching, 1);
-        process_entity->process.is_suspended_by_us = 1; // POSIX_SPAWN_START_SUSPENDED
-        good = mac_dmn_process_install_exception_port(&process_entity->process);
+        
+        // NOTE: trade the spawn's (legacy) suspension for a token-based one
+        good = mac_dmn_process_suspend(&process_entity->process);
+        if(good)
+        {
+          task_resume(task);
+          spawn_suspended = 0;
+          good = mac_dmn_process_install_exception_port(&process_entity->process);
+        }
       }
       if(good)
       {
@@ -2129,6 +2164,21 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
       }
       if(!good)
       {
+        // NOTE: a suspended task can't exit. w/o a task port, the spawn's
+        // suspension can still be undone by PT_ATTACHEXC (which resumes
+        // tasks stopped at spawn), so the kill below can complete.
+        if(spawn_suspended)
+        {
+          if(task != MACH_PORT_NULL)
+          {
+            task_resume(task);
+          }
+          else
+          {
+            ptrace(PT_ATTACHEXC, pid, 0, 0);
+          }
+        }
+        kill(pid, SIGKILL);
         if(process_entity != 0)
         {
           mac_dmn_process_restore_exception_ports(&process_entity->process);
@@ -2138,7 +2188,6 @@ dmn_ctrl_launch(DMN_CtrlCtx *ctx, ProcessLaunchParams *params)
         {
           mach_port_deallocate(mach_task_self(), task);
         }
-        kill(pid, SIGKILL);
         int status = 0;
         mac_dmn_reap(pid, 1000, &status);
         pid = 0;
@@ -2191,12 +2240,11 @@ dmn_ctrl_kill(DMN_CtrlCtx *ctx, DMN_Handle process_handle, U32 exit_code)
   {
     MAC_DMN_Process *process = &process_entity->process;
     result = (kill(process->pid, SIGKILL) == 0);
-    if(result && process->is_suspended_by_us)
+    if(result)
     {
       // NOTE: let it run to its termination; the exit is reported once the
       // task port dies.
-      task_resume(process->task);
-      process->is_suspended_by_us = 0;
+      mac_dmn_process_resume(process);
     }
   }
   mutex_drop(mac_dmn_state->halter_mutex);
@@ -2230,11 +2278,7 @@ dmn_ctrl_detach(DMN_CtrlCtx *ctx, DMN_Handle process_handle)
     B32 got_stop = 0;
     B32 died = 0;
     kill(process->pid, SIGSTOP);
-    if(process->is_suspended_by_us)
-    {
-      task_resume(process->task);
-      process->is_suspended_by_us = 0;
-    }
+    mac_dmn_process_resume(process);
     U64 deadline_us = now_time_us() + 5000000;
     MAC_DMN_RecvBuffer *buf = push_array(scratch.arena, MAC_DMN_RecvBuffer, 1);
     for(;!got_stop && !died;)
@@ -2280,7 +2324,7 @@ dmn_ctrl_detach(DMN_CtrlCtx *ctx, DMN_Handle process_handle)
     //- detach
     if(got_stop && !died)
     {
-      task_suspend(process->task);
+      mac_dmn_process_suspend(process);
       mac_dmn_process_restore_exception_ports(process);
       result = (ptrace(PT_DETACH, process->pid, (caddr_t)1, 0) == 0);
       if(!result)
@@ -2296,7 +2340,7 @@ dmn_ctrl_detach(DMN_CtrlCtx *ctx, DMN_Handle process_handle)
     }
     if(got_stop && !died)
     {
-      task_resume(process->task);
+      mac_dmn_process_resume(process);
     }
 
     //- on success, move the process to the detached list (reported as an
@@ -2313,10 +2357,7 @@ dmn_ctrl_detach(DMN_CtrlCtx *ctx, DMN_Handle process_handle)
       {
         mac_dmn_process_install_exception_port(process);
       }
-      if(task_suspend(process->task) == KERN_SUCCESS)
-      {
-        process->is_suspended_by_us = 1;
-      }
+      mac_dmn_process_suspend(process);
     }
     scratch_end(scratch);
   }
@@ -2598,12 +2639,9 @@ dmn_ctrl_run(Arena *arena, DMN_CtrlCtx *ctx, DMN_RunCtrls *ctrls)
       // resume the task, if anything in it may run (processes which
       // haven't been announced yet have no known threads, & always run)
       B32 should_run = (unfrozen_count != 0 || process->thread_count == 0);
-      if(should_run && process->is_suspended_by_us)
+      if(should_run)
       {
-        if(task_resume(process->task) == KERN_SUCCESS)
-        {
-          process->is_suspended_by_us = 0;
-        }
+        mac_dmn_process_resume(process);
       }
     }
     
