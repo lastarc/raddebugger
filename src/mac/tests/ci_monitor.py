@@ -9,9 +9,10 @@ libc = ctypes.CDLL(ctypes.util.find_library("c"))
 libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 mach_task_self = ctypes.c_uint.in_dll(libc, "mach_task_self_").value
 
-class TaskBasicInfo(ctypes.Structure):
-  _fields_ = [("suspend_count", ctypes.c_int32), ("virtual_size", ctypes.c_uint64), ("resident_size", ctypes.c_uint64),
-              ("user_time", ctypes.c_int32 * 2), ("system_time", ctypes.c_int32 * 2), ("policy", ctypes.c_int32)]
+class TaskBasicInfo(ctypes.Structure): # mach_task_basic_info
+  _pack_ = 4
+  _fields_ = [("virtual_size", ctypes.c_uint64), ("resident_size", ctypes.c_uint64), ("resident_size_max", ctypes.c_uint64),
+              ("user_time", ctypes.c_int32 * 2), ("system_time", ctypes.c_int32 * 2), ("policy", ctypes.c_int32), ("suspend_count", ctypes.c_int32)]
 MACH_TASK_BASIC_INFO = 20
 
 def all_pids():

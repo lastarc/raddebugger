@@ -348,8 +348,16 @@ jobs:
           report
           step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
           code=0
+          # experiment: unprivileged (developer mode only), then root
+          sudo DevToolsSecurity -enable >> build/e2e_test.txt 2>&1
           for round in 1 2 3; do
-            step "2: root e2e, round $round"
+            step "2: unprivileged e2e, round $round"
+            perl -e 'alarm 120; exec @ARGV' ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
+            c=$?; [ $c != 0 ] && code=$c
+            pkill -9 -f raddbg_non_graphical; pkill -9 -f mac_demon_test_target
+          done
+          for round in 1 2; do
+            step "3: root e2e, round $round"
             sudo perl -e 'alarm 120; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
             c=$?; [ $c != 0 ] && code=$c
             sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
