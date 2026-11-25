@@ -334,7 +334,7 @@ jobs:
           }
           echo "phase 0: monitor up" > build/e2e_test.txt
           report
-          ( while true; do sleep 5; report; done ) &
+          ( while true; do sleep 2; report; done ) &
           monitor=$!
           # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
           ./build/raddbg_non_graphical --ipc_port:7533 --no_focus_on_stop --user:build/e2e/unpriv.raddbg_user > build/e2e/unpriv_debugger.txt 2>&1 < /dev/null &
@@ -344,15 +344,8 @@ jobs:
           grep -q stop_count build/e2e/unpriv_state.txt && echo "phase 1: unprivileged IPC OK" >> build/e2e_test.txt || echo "phase 1: unprivileged IPC FAILED" >> build/e2e_test.txt
           kill -9 $unpriv
           report
-          # phase 2, privileged, bisecting what (if anything) takes the runner down
           step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
-          step "2a: sudo true"; sudo true
-          step "2b: root debugger idle for 10s"
-          sudo perl -e 'alarm 30; exec @ARGV' sh -c './build/raddbg_non_graphical --ipc_port:7535 --no_focus_on_stop --user:build/e2e/root_idle.raddbg_user > build/e2e/root_idle.txt 2>&1 < /dev/null & p=$!; sleep 10; kill -9 $p'
-          step "2c: root debugger + root IPC"
-          sudo perl -e 'alarm 40; exec @ARGV' sh -c './build/raddbg_non_graphical --ipc_port:7536 --no_focus_on_stop --user:build/e2e/root_ipc.raddbg_user > build/e2e/root_ipc.txt 2>&1 < /dev/null & p=$!; sleep 5; perl -e "alarm 20; exec @ARGV" ./build/raddbg_non_graphical --ipc --ipc_port:7536 state > build/e2e/root_ipc_state.txt 2>&1; kill -9 $p'
-          grep -q stop_count build/e2e/root_ipc_state.txt && echo "phase 2c: root IPC OK" >> build/e2e_test.txt || echo "phase 2c: root IPC FAILED" >> build/e2e_test.txt
-          step "2d: full e2e"
+          step "2: full e2e"
           sudo perl -e 'alarm 300; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
           code=$?
           sudo pkill -9 -f raddbg_non_graphical

@@ -45,8 +45,14 @@ check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
 stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1)
 
 echo "== eval"
-ipc eval g_counter > "$out/eval.txt" 2>&1
-check "evaluate a global" "$out/eval.txt" "g_counter"
+# NOTE: debug info loads asynchronously; evaluations fail until it's in
+for i in $(seq 1 20); do
+  ipc eval g_counter > "$out/eval.txt" 2>&1
+  grep -q 'value: ""' "$out/eval.txt" || break
+  sleep 1
+done
+check "evaluate a global (g_counter == 0 on the first call)" "$out/eval.txt" 'value: "0"'
+
 
 echo "== step_out"
 ipc step_out > "$out/cmd_step_out.txt" 2>&1
