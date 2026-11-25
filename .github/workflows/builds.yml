@@ -335,6 +335,8 @@ jobs:
           }
           echo "phase 0: monitor up" > build/e2e_test.txt
           report
+          # experiment: start ~90s into the job
+          sleep 60
           ( while true; do sleep 1; report; done ) &
           monitor=$!
           # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
