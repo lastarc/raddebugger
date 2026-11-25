@@ -315,12 +315,27 @@ jobs:
           pkill -9 -f mac_demon_test_target
           exit $code
 
-      - name: GUI Smoke Test
-        if: ${{ !cancelled() }}
-        timeout-minutes: 10
+  gui-smoke-macos-15-intel:
+    runs-on: macos-15-intel
+    name: gui-smoke-test-macos15-intel
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Build
         shell: bash
         run: |
           ./build.sh raddbg debug clang
+          echo "::notice title=build::raddbg built"
+
+      - name: GUI Smoke Test
+        timeout-minutes: 10
+        shell: bash
+        run: |
           ./build/raddbg > build/raddbg_output.txt 2>&1 < /dev/null &
           pid=$!
           sleep 20
