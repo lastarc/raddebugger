@@ -286,6 +286,14 @@ jobs:
           fi
           exit $code
 
+      - name: Upload Demon Test Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-demon-test-output
+          path: build/demon_test.txt
+          if-no-files-found: ignore
+
       - name: Debug Info Conversion
         if: ${{ !cancelled() }}
         timeout-minutes: 5
@@ -314,6 +322,14 @@ jobs:
           cat build/demon_test_unprivileged.txt | sed 's/^::error/::warning/'
           pkill -9 -f mac_demon_test_target
           exit $code
+
+      - name: Upload Unprivileged Demon Test Output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-demon-test-output-unprivileged
+          path: build/demon_test_unprivileged.txt
+          if-no-files-found: ignore
 
   gui-smoke-macos-15-intel:
     runs-on: macos-15-intel
