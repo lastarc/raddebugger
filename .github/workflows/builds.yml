@@ -349,23 +349,15 @@ jobs:
           step() { echo "phase $1" >> build/e2e_test.txt; report; sleep 3; report; }
           code=0
           sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          # experiment: drive a root debugger step by step, w/ a synchronous report after each step
-          sudo sh -c './build/raddbg_non_graphical --ipc_port:7540 --no_focus_on_stop --user:build/e2e/x.raddbg_user --logs:build/e2e/logs > build/e2e/debugger.txt 2>&1 < /dev/null &'
-          x() { echo "x: $*" >> build/e2e_test.txt; perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7540 "$@" 2>&1 | grep -E "value|msgs|stop_count|running|ip_voff_symbol|^\$|ERROR" | head -n 5 >> build/e2e_test.txt; report; sleep 2; report; }
-          for i in $(seq 1 30); do perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7540 state 2>&1 | grep -q stop_count && break; sleep 1; done
-          x add_target "$PWD/build/mac_demon_test_target"
-          x add_function_breakpoint target_func
-          x run
-          sleep 5
-          x state
-          x eval 1+2
-          x eval rip
-          x eval rsp
-          x eval "*(int *)rsp"
-          x eval g_counter
-          x eval g_counter
-          x eval g_counter
-          x state
+          # experiment A: demon only (no raddbg), debuggee held stopped at a breakpoint for 60s
+          step "A: demon-only stopped debuggee, 60s"
+          sudo perl -e 'alarm 150; exec @ARGV' env MAC_DEMON_TEST_HOLD_SECONDS=60 ./build/mac_demon_test ./build/mac_demon_test_target >> build/e2e_test.txt 2>&1 < /dev/null
+          sudo pkill -9 -f mac_demon_test_target
+          step "A done"
+          # experiment B: root raddbg_non_graphical, no target, 60s
+          step "B: root debugger, no target, 60s"
+          sudo perl -e 'alarm 90; exec @ARGV' sh -c './build/raddbg_non_graphical --ipc_port:7541 --no_focus_on_stop --user:build/e2e/b.raddbg_user > build/e2e/b.txt 2>&1 < /dev/null & p=$!; sleep 60; kill -9 $p'
+          step "B done"
           sudo pkill -f "log stream"
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target

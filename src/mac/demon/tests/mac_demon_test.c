@@ -439,6 +439,19 @@ t_test_launch(String8 target_path)
   DMN_Handle bp_thread = e->thread;
   T_CHECK(dmn_handle_match(bp_thread, h.main_thread), "breakpoint hit by the main thread");
 
+  //- optional: keep the debuggee stopped at the breakpoint for a while
+  {
+    char *hold = getenv("MAC_DEMON_TEST_HOLD_SECONDS");
+    U64 hold_s = hold ? (U64)atoi(hold) : 0;
+    if(hold_s != 0)
+    {
+      printf("  holding the stopped debuggee for %llu s\n", hold_s);
+      fflush(stdout);
+      t_arm_timeout(hold_s + 30);
+      sleep((unsigned)hold_s);
+    }
+  }
+
   //- registers & unwinding: target_func -> target_caller -> main
   X64_RegBlock regs = {0};
   T_CHECK(dmn_thread_read_reg_block(bp_thread, &regs) && regs.rip == target_func, "registers (rip = 0x%llx)", regs.rip);
