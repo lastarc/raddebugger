@@ -8,6 +8,8 @@
 # include "render/opengl/win32/render_opengl_win32.c"
 #elif OS_LINUX
 # include "render/opengl/linux/render_opengl_linux.c"
+#elif OS_MAC
+# include "render/opengl/mac/render_opengl_mac.c"
 #else
 # error OS portion of OpenGL rendering backend not defined.
 #endif
@@ -224,7 +226,9 @@ r_init(CmdLine *cmdln)
 #if BUILD_DEBUG
   debug_mode = 1;
 #endif
-  if(debug_mode)
+  // NOTE: debug output is unavailable on some platforms (e.g. macOS, which
+  // caps out at OpenGL 4.1), in which case the procedure won't be loaded.
+  if(debug_mode && glDebugMessageCallback != 0)
   {
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
     glDebugMessageCallback(r_ogl_debug_message_callback, 0);
