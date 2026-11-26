@@ -47,7 +47,12 @@ def sample_summary(path):
   b = text.find("Binary Images")
   head = text[:3000]
   c = text.find("Call graph:")
-  return (text[a:b] if a >= 0 else "")[:5000] + "\n--- call graph (truncated)\n" + "\n".join(l[:160] for l in text[c:a].splitlines() if l.count("+") + l.count("!") + l.count(":") + l.count("|") < 14)[:30000]
+  def depth(l):
+    for i, ch in enumerate(l):
+      if ch.isdigit(): return i
+    return 999
+  graph = "\n".join(l[:150] for l in text[c:a].splitlines() if depth(l) <= 28)
+  return (text[a:b] if a >= 0 else "")[:3000] + "\n--- call graph (shallow)\n" + graph[:30000]
 
 def tail(path, n):
   try:
