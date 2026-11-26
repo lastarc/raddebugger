@@ -348,7 +348,7 @@ jobs:
           report
           step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
           code=0
-          for round in 1 2; do
+          for round in 1 2 3; do
             step "2: root e2e w/ 60s idle after the stop, round $round"
             sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_IDLE_AFTER_STOP=60 E2E_SAMPLE=1 ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
             c=$?; [ $c != 0 ] && code=$c

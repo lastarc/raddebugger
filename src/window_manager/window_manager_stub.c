@@ -220,6 +220,11 @@ internal WM_EventList
 wm_get_events(Arena *arena, B32 wait)
 {
   WM_EventList evts = {0};
+  // NOTE: no events will ever arrive; don't spin when asked to wait
+  if(wait)
+  {
+    sleep_ms(10);
+  }
   return evts;
 }
 
