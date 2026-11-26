@@ -22,22 +22,30 @@ mac_dmn_read(task_t task, Rng1U64 range, void *dst)
   U64 result = 0;
   if(size != 0 && task != MACH_PORT_NULL)
   {
-    // NOTE: page-granular reads, stopping at the first unreadable page. reads
-    // below two pages are copied through a kernel buffer, rather than via
-    // copy-on-write mappings of the debuggee's pages into ours.
-    U64 page_size = get_system_info()->page_size;
-    for(U64 cursor = 0; cursor < size;)
+    // NOTE: whole-range read first; on failure, fall back to page-granular
+    // reads, stopping at the first unreadable page.
+    mach_vm_size_t out_size = 0;
+    kern_return_t kr = mach_vm_read_overwrite(task, range.min, size, (mach_vm_address_t)dst, &out_size);
+    if(kr == KERN_SUCCESS)
     {
-      U64 vaddr = range.min + cursor;
-      U64 chunk = Min(size - cursor, AlignPow2(vaddr+1, page_size) - vaddr);
-      mach_vm_size_t chunk_out = 0;
-      kern_return_t kr = mach_vm_read_overwrite(task, vaddr, chunk, (mach_vm_address_t)((U8 *)dst + cursor), &chunk_out);
-      if(kr != KERN_SUCCESS || chunk_out != chunk)
+      result = out_size;
+    }
+    else
+    {
+      U64 page_size = get_system_info()->page_size;
+      for(U64 cursor = 0; cursor < size;)
       {
-        break;
+        U64 vaddr = range.min + cursor;
+        U64 chunk = Min(size - cursor, AlignPow2(vaddr+1, page_size) - vaddr);
+        mach_vm_size_t chunk_out = 0;
+        kr = mach_vm_read_overwrite(task, vaddr, chunk, (mach_vm_address_t)((U8 *)dst + cursor), &chunk_out);
+        if(kr != KERN_SUCCESS || chunk_out != chunk)
+        {
+          break;
+        }
+        cursor += chunk;
+        result = cursor;
       }
-      cursor += chunk;
-      result = cursor;
     }
   }
   return result;
