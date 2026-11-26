@@ -103,7 +103,8 @@ def scanner():
       t = threading.Thread(target=query, args=(pid, out), daemon=True)
       t.start(); t.join(1.0)
       if not out:
-        stuck[pid] = f"{time.strftime('%H:%M:%S')} {name_of(pid)}"
+        stuck[pid] = f"{time.strftime('%H:%M:%S')}"
+        stuck[pid] += f" {name_of(pid)}"
       elif out[0]:
         found.append(f"{pid} suspend_count={out[0]} {name_of(pid)}")
     susp = found
