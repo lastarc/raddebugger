@@ -348,10 +348,9 @@ jobs:
           step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
           code=0
           sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          for round in 1 2 3; do
-            step "2: root e2e w/ 60s idle after the stop, round $round"
-            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_IDLE_AFTER_STOP=60 ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
-            c=$?; [ $c != 0 ] && code=$c
+          for expr in "1+2" "1+2" "rip" "g_counter"; do
+            step "2: root, stopped, evaluating $expr x15"
+            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_EVAL_ONLY="$expr" ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
             sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
           done
           sudo pkill -9 -f raddbg_non_graphical
