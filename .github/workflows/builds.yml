@@ -7,6 +7,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+  workflow_dispatch:
 
 env:
   TORTURE_FLAGS: "--gen_crash_dump" 
@@ -297,6 +298,8 @@ jobs:
   e2e-macos-15-intel:
     runs-on: macos-15-intel
     name: mac-e2e-test-macos15-intel
+    # NOTE: manual only, for now: see the known issue below
+    if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 20
     permissions:
       contents: read
@@ -318,10 +321,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # NOTE: known issue: on these runners, a long-lived debugging session
-          # (roughly a minute or more w/ raddbg attached) has repeatedly made
-          # the whole runner VM stop responding, cause unknown; the test is kept
-          # short. Root processes can't be killed by the runner, so everything
+          # NOTE: known issue: on these runners, a debugging session w/ raddbg
+          # attached often makes the whole runner VM stop responding (anywhere
+          # from seconds to a minute in), cause unknown. Root processes can't be killed by the runner, so everything
           # run w/ sudo is time-limited from the inside, & progress is mirrored
           # into a check run (mac-e2e-progress), visible even if the runner stops
           # responding.

@@ -369,11 +369,11 @@ generates the `.dSYM` with `dsymutil` into the debugger's cache folder.
 - System libraries live in the dyld shared cache, without debug info on disk;
   they show up in call stacks as module + offset.
 - Following child processes (`fork`/`exec`) isn't supported.
-- Known issue: on GitHub's `macos-15-intel` runner VMs, debugging sessions that
-  last about a minute or more have repeatedly made the whole VM stop responding
-  (seen as root and once unprivileged). The cause is not known yet, and it has
-  not been checked on real hardware. Short sessions, and the demon-level tests,
-  work reliably. Save your work before long sessions, and if your Mac panics,
+- Known issue: on GitHub's `macos-15-intel` runner VMs, a session with `raddbg`
+  attached to a program often makes the whole VM stop responding, anywhere from
+  seconds to a minute in (seen as root, and once unprivileged). The cause is not
+  known yet, and it has not been checked on real hardware. The demon-level tests
+  (the same launch, stop, and inspection code, without the UI) work reliably. Save your work before long sessions, and if your Mac panics,
   the report in `/Library/Logs/DiagnosticReports` (`*.panic`) would pinpoint it.
 - The `torture` test harness and the RAD Linker are not ported. Demon-level tests
   can be run with `./build.sh mac_demon_test`, then
