@@ -54,6 +54,16 @@ def sample_summary(path):
   graph = "\n".join(l[:150] for l in text[c:a].splitlines() if depth(l) <= 28)
   return (text[a:b] if a >= 0 else "")[:3000] + "\n--- call graph (shallow)\n" + graph[:30000]
 
+def syslog_tail(path, n):
+  # fault/error-level lines, & anything from the kernel
+  try:
+    with open(path, "rb") as f:
+      f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 4000000))
+      lines = f.read().decode(errors="replace").splitlines()
+  except OSError: return ""
+  keep = [l[:200] for l in lines if (" F " in l[:40] or " E " in l[:40] or "kernel[" in l) and "tcp_connection" not in l and "tcp conn" not in l and "map_with_linking" not in l]
+  return "\n".join(keep[-n:])
+
 def tail(path, n):
   try:
     with open(path, errors="replace") as f: return "".join(f.readlines()[-n:])
@@ -120,7 +130,7 @@ while True:
   spawn_state = f"last successful spawn {time.time()-last_spawn_ok:.1f} s ago"
   text = "```\n" + time.strftime("%H:%M:%S") + f"\nspawn: {spawn_state}\n--- tasks whose task_info blocks\n" + "\n".join(f"{k} since {v}" for k, v in stuck.items()) + \
          "\n--- suspended tasks\n" + "\n".join(susp) + \
-         "\n--- progress\n" + tail(progress_path, 25) + "\n--- log\n" + tail(log_path, 30) + "\n--- sample\n" + sample_summary(os.path.join(os.path.dirname(progress_path), "e2e", "sample.txt")) + "```"
+         "\n--- progress\n" + tail(progress_path, 25) + "\n--- syslog\n" + syslog_tail(os.path.join(os.path.dirname(progress_path), "e2e", "syslog.txt"), 60) + "```"
   try: post(text)
   except Exception: pass
   time.sleep(1)
