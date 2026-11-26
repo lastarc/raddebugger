@@ -58,7 +58,7 @@ if [[ "$idle" != 0 ]]; then
   echo "== idle done"
 fi
 if [[ -n "${E2E_EVAL_ONLY:-}" ]]; then
-  for i in $(seq 1 15); do echo "== eval $E2E_EVAL_ONLY ($i)"; ipc eval "$E2E_EVAL_ONLY" 2>&1 | grep -E "value|msgs"; sleep 2; done
+  for i in $(seq 1 ${E2E_EVAL_COUNT:-15}); do echo "== eval $E2E_EVAL_ONLY ($i)"; ipc eval "$E2E_EVAL_ONLY" 2>&1 | grep -E "value|msgs"; sleep 2; done
   echo "== eval-only done"
   kill -9 $dbg 2>/dev/null; pkill -9 -f mac_demon_test_target 2>/dev/null
   exit 0

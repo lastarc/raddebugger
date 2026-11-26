@@ -313,7 +313,7 @@ jobs:
         run: ./build.sh raddbg_non_graphical mac_demon_test debug clang
 
       - name: End-To-End Test
-        timeout-minutes: 8
+        timeout-minutes: 12
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,9 +348,9 @@ jobs:
           step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
           code=0
           sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          for expr in "1+2" "1+2" "rip" "g_counter"; do
-            step "2: root, stopped, evaluating $expr x15"
-            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_EVAL_ONLY="$expr" ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
+          for expr in "g_counter" "g_counter" "g_counter"; do
+            step "2: root, stopped, evaluating $expr x40"
+            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_EVAL_ONLY="$expr" E2E_EVAL_COUNT=40 ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
             sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
           done
           sudo pkill -9 -f raddbg_non_graphical
