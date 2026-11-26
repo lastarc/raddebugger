@@ -313,46 +313,27 @@ jobs:
         run: ./build.sh raddbg_non_graphical mac_demon_test debug clang
 
       - name: End-To-End Test
-        timeout-minutes: 12
+        timeout-minutes: 8
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # NOTE: root processes can't be killed by the runner, so everything
-          # run w/ sudo is time-limited from the inside. Progress is mirrored
-          # into a check run, so it's visible even if the runner stops responding.
+          # NOTE: known issue: on these runners, a long-lived debugging session
+          # (roughly a minute or more w/ raddbg attached) has repeatedly made
+          # the whole runner VM stop responding, cause unknown; the test is kept
+          # short. Root processes can't be killed by the runner, so everything
+          # run w/ sudo is time-limited from the inside, & progress is mirrored
+          # into a check run (mac-e2e-progress), visible even if the runner stops
+          # responding.
           set +e
           mkdir -p build/e2e
+          echo "e2e: starting" > build/e2e_test.txt
           check_id=$(gh api -X POST repos/${{ github.repository }}/check-runs -f name=mac-e2e-progress -f head_sha=${{ github.sha }} -f status=in_progress --jq .id 2>/dev/null)
-          report() {
-            [ -n "$check_id" ] || return 0
-            { echo '```'; date -u; echo "--- e2e"; tail -n 25 build/e2e_test.txt 2>/dev/null
-              echo "--- ctrl log"; tail -n 60 build/e2e/logs/ctrl_thread.raddbg_log 2>/dev/null
-              echo "--- debugger"; tail -n 8 build/e2e/debugger.txt 2>/dev/null
-              echo "--- syslog"; grep -E "kernel|jetsam|memorystatus|raddbg|mac_demon|amfi|taskgated|panic|EXC_|sandbox" build/e2e/syslog.txt 2>/dev/null | grep -v "e2e_report" | tail -n 40 | cut -c1-220
-              echo "--- ps"; ps -axo pid,ppid,user,stat,%cpu,rss,etime,comm -r | head -n 8; ps -axo pid,ppid,stat,%cpu,rss,etime,command | grep -E "raddbg|mac_demon_test_target" | grep -v grep | cut -c1-200
-              echo "--- vm"; vm_stat | sed -n 2,4p; sysctl vm.swapusage; echo '```'; } > build/e2e_report.md
-            gh api -X PATCH repos/${{ github.repository }}/check-runs/$check_id -f "output[title]=e2e progress" -F "output[summary]=@build/e2e_report.md" > /dev/null 2>&1
-          }
-          echo "phase 0: monitor up" > build/e2e_test.txt
-          report
-          sudo env GH_TOKEN="$GH_TOKEN" python3 src/mac/tests/ci_monitor.py ${{ github.repository }} "$check_id" build/e2e_test.txt build/e2e/logs/ctrl_thread.raddbg_log > build/e2e/monitor.txt 2>&1 &
-          monitor=$!
-          # phase 1, unprivileged: debugger startup & IPC only (no debuggee)
-          ./build/raddbg_non_graphical --ipc_port:7533 --no_focus_on_stop --user:build/e2e/unpriv.raddbg_user > build/e2e/unpriv_debugger.txt 2>&1 < /dev/null &
-          unpriv=$!
-          echo "phase 1: unprivileged debugger pid $unpriv" >> build/e2e_test.txt
-          for i in $(seq 1 30); do perl -e 'alarm 20; exec @ARGV' ./build/raddbg_non_graphical --ipc --ipc_port:7533 state > build/e2e/unpriv_state.txt 2>&1 && grep -q stop_count build/e2e/unpriv_state.txt && break; sleep 1; done
-          grep -q stop_count build/e2e/unpriv_state.txt && echo "phase 1: unprivileged IPC OK" >> build/e2e_test.txt || echo "phase 1: unprivileged IPC FAILED" >> build/e2e_test.txt
-          kill -9 $unpriv
-          step() { echo "phase $1" >> build/e2e_test.txt; sleep 3; }
-          code=0
-          sudo log stream --style compact --level info > build/e2e/syslog.txt 2>&1 &
-          for expr in "g_counter" "g_counter" "g_counter"; do
-            step "2: root, stopped, evaluating $expr x40"
-            sudo perl -e 'alarm 200; exec @ARGV' env GITHUB_ACTIONS=true E2E_EVAL_ONLY="$expr" E2E_EVAL_COUNT=40 ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
-            sudo pkill -9 -f raddbg_non_graphical; sudo pkill -9 -f mac_demon_test_target
-          done
+          if [ -n "$check_id" ]; then
+            sudo env GH_TOKEN="$GH_TOKEN" python3 src/mac/tests/ci_monitor.py ${{ github.repository }} "$check_id" build/e2e_test.txt build/e2e/logs/ctrl_thread.raddbg_log > build/e2e/monitor.txt 2>&1 &
+          fi
+          sudo perl -e 'alarm 180; exec @ARGV' env GITHUB_ACTIONS=true ./src/mac/tests/e2e_test.sh build >> build/e2e_test.txt 2>&1 < /dev/null
+          code=$?
           sudo pkill -9 -f raddbg_non_graphical
           sudo pkill -9 -f mac_demon_test_target
           sudo pkill -f ci_monitor.py
@@ -368,7 +349,6 @@ jobs:
           path: |
             build/e2e_test.txt
             build/e2e/
-            /Library/Logs/DiagnosticReports/JetsamEvent*
           if-no-files-found: ignore
 
   gui-smoke-macos-15-intel:

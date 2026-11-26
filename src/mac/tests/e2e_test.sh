@@ -44,25 +44,6 @@ check "stopped in target_func" "$out/state1.txt" 'ip_voff_symbol: "target_func"'
 check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
 stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1)
 
-idle="${E2E_IDLE_AFTER_STOP:-0}"
-if [[ "$idle" != 0 ]]; then
-  echo "== idle for ${idle}s after the stop"
-  end=$((SECONDS + idle))
-  while (( SECONDS < end )); do
-    if [[ -n "${E2E_SAMPLE:-}" ]]; then
-      sample $dbg 2 -mayDie -file "$out/sample.tmp" > /dev/null 2>&1 && mv "$out/sample.tmp" "$out/sample.txt"
-      echo "   sampled at $SECONDS s"
-    fi
-    sleep 2
-  done
-  echo "== idle done"
-fi
-if [[ -n "${E2E_EVAL_ONLY:-}" ]]; then
-  for i in $(seq 1 ${E2E_EVAL_COUNT:-15}); do echo "== eval $E2E_EVAL_ONLY ($i)"; ipc eval "$E2E_EVAL_ONLY" 2>&1 | grep -E "value|msgs"; sleep 2; done
-  echo "== eval-only done"
-  kill -9 $dbg 2>/dev/null; pkill -9 -f mac_demon_test_target 2>/dev/null
-  exit 0
-fi
 echo "== eval"
 # NOTE: debug info loads asynchronously; evaluations fail until it's in
 for i in $(seq 1 20); do
@@ -71,7 +52,6 @@ for i in $(seq 1 20); do
   sleep 1
 done
 check "evaluate a global (g_counter == 0 on the first call)" "$out/eval.txt" 'value: "0"'
-
 
 echo "== step_out"
 ipc step_out > "$out/cmd_step_out.txt" 2>&1

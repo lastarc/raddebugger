@@ -348,8 +348,9 @@ which, with developer mode enabled, lets it debug your own programs:
 sudo DevToolsSecurity -enable
 ```
 
-If launching or attaching still fails (the reason is printed to the terminal),
-run the debugger as root (`sudo ./build/raddbg`). Programs which use the hardened
+If launching or attaching still fails, the reason is printed to the terminal.
+Running the debugger as root (`sudo ./build/raddbg`) also works, but isn't
+recommended (see the known issue below). Programs which use the hardened
 runtime can only be debugged if they're signed with the
 `com.apple.security.get-task-allow` entitlement, and system binaries can't be
 debugged with System Integrity Protection enabled.
@@ -368,6 +369,12 @@ generates the `.dSYM` with `dsymutil` into the debugger's cache folder.
 - System libraries live in the dyld shared cache, without debug info on disk;
   they show up in call stacks as module + offset.
 - Following child processes (`fork`/`exec`) isn't supported.
+- Known issue: on GitHub's `macos-15-intel` runner VMs, debugging sessions that
+  last about a minute or more have repeatedly made the whole VM stop responding
+  (seen as root and once unprivileged). The cause is not known yet, and it has
+  not been checked on real hardware. Short sessions, and the demon-level tests,
+  work reliably. Save your work before long sessions, and if your Mac panics,
+  the report in `/Library/Logs/DiagnosticReports` (`*.panic`) would pinpoint it.
 - The `torture` test harness and the RAD Linker are not ported. Demon-level tests
   can be run with `./build.sh mac_demon_test`, then
   `sudo ./build/mac_demon_test ./build/mac_demon_test_target`.

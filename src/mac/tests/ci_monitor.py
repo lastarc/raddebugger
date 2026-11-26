@@ -25,45 +25,6 @@ def name_of(pid):
   n = libproc.proc_pidpath(pid, b, 4096)
   return b.value.decode(errors="replace") if n > 0 else "?"
 
-def _unused_suspended_tasks():
-  out = []
-  for pid in all_pids():
-    port = ctypes.c_uint(0)
-    if libc.task_name_for_pid(mach_task_self, pid, ctypes.byref(port)) != 0:
-      continue
-    info = TaskBasicInfo()
-    count = ctypes.c_uint(ctypes.sizeof(info) // 4)
-    kr = libc.task_info(port, MACH_TASK_BASIC_INFO, ctypes.byref(info), ctypes.byref(count))
-    libc.mach_port_deallocate(mach_task_self, port)
-    if kr == 0 and info.suspend_count > 0:
-      out.append(f"{pid} suspend_count={info.suspend_count} {name_of(pid)}")
-  return out
-
-def sample_summary(path):
-  try:
-    with open(path, errors="replace") as f: text = f.read()
-  except OSError: return ""
-  a = text.find("Sort by top of stack")
-  b = text.find("Binary Images")
-  head = text[:3000]
-  c = text.find("Call graph:")
-  def depth(l):
-    for i, ch in enumerate(l):
-      if ch.isdigit(): return i
-    return 999
-  graph = "\n".join(l[:150] for l in text[c:a].splitlines() if depth(l) <= 28)
-  return (text[a:b] if a >= 0 else "")[:3000] + "\n--- call graph (shallow)\n" + graph[:30000]
-
-def syslog_tail(path, n):
-  # fault/error-level lines, & anything from the kernel
-  try:
-    with open(path, "rb") as f:
-      f.seek(0, 2); size = f.tell(); f.seek(max(0, size - 4000000))
-      lines = f.read().decode(errors="replace").splitlines()
-  except OSError: return ""
-  keep = [l[:200] for l in lines if (" F " in l[:40] or " E " in l[:40] or "kernel[" in l) and "tcp_connection" not in l and "tcp conn" not in l and "map_with_linking" not in l]
-  return "\n".join(keep[-n:])
-
 def tail(path, n):
   try:
     with open(path, errors="replace") as f: return "".join(f.readlines()[-n:])
@@ -130,7 +91,7 @@ while True:
   spawn_state = f"last successful spawn {time.time()-last_spawn_ok:.1f} s ago"
   text = "```\n" + time.strftime("%H:%M:%S") + f"\nspawn: {spawn_state}\n--- tasks whose task_info blocks\n" + "\n".join(f"{k} since {v}" for k, v in stuck.items()) + \
          "\n--- suspended tasks\n" + "\n".join(susp) + \
-         "\n--- progress\n" + tail(progress_path, 25) + "\n--- syslog\n" + syslog_tail(os.path.join(os.path.dirname(progress_path), "e2e", "syslog.txt"), 60) + "```"
+         "\n--- progress\n" + tail(progress_path, 40) + "\n--- log\n" + tail(log_path, 40) + "```"
   try: post(text)
   except Exception: pass
   time.sleep(1)
