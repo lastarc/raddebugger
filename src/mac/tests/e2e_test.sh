@@ -16,10 +16,6 @@ port=$((20000 + RANDOM % 20000))
 rm -f "$out/user.raddbg_user"
 "$build/raddbg_non_graphical" --ipc_port:$port --no_focus_on_stop --user:"$out/user.raddbg_user" --logs:"$out/logs" > "$out/debugger.txt" 2>&1 < /dev/null &
 dbg=$!
-# NOTE: CI diagnostics: periodically sample the debugger's threads (only if asked)
-if [[ -n "${E2E_SAMPLE:-}" ]]; then
-  ( while kill -0 $dbg 2>/dev/null; do sample $dbg 1 -mayDie -file "$out/sample.tmp" > /dev/null 2>&1 && mv "$out/sample.tmp" "$out/sample.txt"; sleep 2; done ) &
-fi
 # NOTE: every IPC call is time-limited, so a wedged debugger can't hang the test
 ipc() { perl -e 'alarm 20; exec @ARGV' "$build/raddbg_non_graphical" --ipc --ipc_port:$port "$@"; }
 echo "== waiting for the debugger (pid $dbg, ipc port $port)"
@@ -49,7 +45,18 @@ check "line info for the stop" "$out/state1.txt" 'mac_demon_test_target.c'
 stop1=$(sed -n 's/^ *stop_count: *\([0-9]*\).*/\1/p' "$out/state1.txt" | head -1)
 
 idle="${E2E_IDLE_AFTER_STOP:-0}"
-if [[ "$idle" != 0 ]]; then echo "== idle for ${idle}s after the stop"; sleep "$idle"; echo "== idle done"; fi
+if [[ "$idle" != 0 ]]; then
+  echo "== idle for ${idle}s after the stop"
+  end=$((SECONDS + idle))
+  while (( SECONDS < end )); do
+    if [[ -n "${E2E_SAMPLE:-}" ]]; then
+      sample $dbg 2 -mayDie -file "$out/sample.tmp" > /dev/null 2>&1 && mv "$out/sample.tmp" "$out/sample.txt"
+      echo "   sampled at $SECONDS s"
+    fi
+    sleep 2
+  done
+  echo "== idle done"
+fi
 echo "== eval"
 # NOTE: debug info loads asynchronously; evaluations fail until it's in
 for i in $(seq 1 20); do

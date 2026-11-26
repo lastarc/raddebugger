@@ -46,7 +46,8 @@ def sample_summary(path):
   a = text.find("Sort by top of stack")
   b = text.find("Binary Images")
   head = text[:3000]
-  return (text[a:b] if a >= 0 else "")[:6000] + "\n--- sample head\n" + head
+  c = text.find("Call graph:")
+  return (text[a:b] if a >= 0 else "")[:5000] + "\n--- call graph (truncated)\n" + "\n".join(l[:160] for l in text[c:a].splitlines() if l.count("+") + l.count("!") + l.count(":") + l.count("|") < 14)[:30000]
 
 def tail(path, n):
   try:
