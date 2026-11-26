@@ -25,7 +25,7 @@ def name_of(pid):
   n = libproc.proc_pidpath(pid, b, 4096)
   return b.value.decode(errors="replace") if n > 0 else "?"
 
-def suspended_tasks():
+def _unused_suspended_tasks():
   out = []
   for pid in all_pids():
     port = ctypes.c_uint(0)
@@ -79,11 +79,41 @@ def spawner():
     time.sleep(0.5)
 threading.Thread(target=spawner, daemon=True).start()
 
+# NOTE: querying a task can block forever if that task is wedged in the kernel;
+# each query runs on its own thread, & a query that doesn't return in time is
+# reported (once a pid is known to block, it's skipped).
+stuck = {}
+susp = []
+def query(pid, out):
+  port = ctypes.c_uint(0)
+  if libc.task_name_for_pid(mach_task_self, pid, ctypes.byref(port)) != 0:
+    out.append(None); return
+  info = TaskBasicInfo()
+  count = ctypes.c_uint(ctypes.sizeof(info) // 4)
+  kr = libc.task_info(port, MACH_TASK_BASIC_INFO, ctypes.byref(info), ctypes.byref(count))
+  libc.mach_port_deallocate(mach_task_self, port)
+  out.append(info.suspend_count if kr == 0 else None)
+def scanner():
+  global susp
+  while True:
+    found = []
+    for pid in all_pids():
+      if pid in stuck: continue
+      out = []
+      t = threading.Thread(target=query, args=(pid, out), daemon=True)
+      t.start(); t.join(1.0)
+      if not out:
+        stuck[pid] = f"{time.strftime('%H:%M:%S')} {name_of(pid)}"
+      elif out[0]:
+        found.append(f"{pid} suspend_count={out[0]} {name_of(pid)}")
+    susp = found
+    time.sleep(1)
+threading.Thread(target=scanner, daemon=True).start()
+
 while True:
   spawn_state = f"last successful spawn {time.time()-last_spawn_ok:.1f} s ago"
-  try: susp = suspended_tasks()
-  except Exception as e: susp = [f"error: {e!r}"]
-  text = "```\n" + time.strftime("%H:%M:%S") + f"\nspawn: {spawn_state}\n--- suspended tasks\n" + "\n".join(susp) + \
+  text = "```\n" + time.strftime("%H:%M:%S") + f"\nspawn: {spawn_state}\n--- tasks whose task_info blocks\n" + "\n".join(f"{k} since {v}" for k, v in stuck.items()) + \
+         "\n--- suspended tasks\n" + "\n".join(susp) + \
          "\n--- progress\n" + tail(progress_path, 25) + "\n--- log\n" + tail(log_path, 30) + "\n--- sample\n" + sample_summary(os.path.join(os.path.dirname(progress_path), "e2e", "sample.txt")) + "```"
   try: post(text)
   except Exception: pass
